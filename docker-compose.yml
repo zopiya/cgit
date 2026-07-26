@@ -5,7 +5,7 @@ services:
     #   image: ghcr.io/zopiya/cgit:latest
     # `latest`/`main` float; for a pinned, traceable deployment use the
     # dated tag CI also publishes on every build, e.g.:
-    #   image: ghcr.io/zopiya/cgit:20260726-255bf93
+    #   image: ghcr.io/zopiya/cgit:20260726-85c44e1
     # (see the repo's package page or `git log` for available tags/shas)
     container_name: cgit
     restart: unless-stopped

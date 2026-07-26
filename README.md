@@ -89,17 +89,19 @@ option (auth filters, syntax highlighting, per-repo settings, etc).
    needs it, add `docker/setup-qemu-action` back and set
    `platforms: linux/amd64,linux/arm64`.
 2. **Smoke tests** the built image before anything is pushed: runs it,
-   curls `/` for an actual cgit response, and confirms the image's own
-   `HEALTHCHECK` reports `healthy`. A green `docker build` doesn't
-   guarantee a working container — this pipeline actually hit that
-   exact gap once already (see git log around the multi-step debugging
-   commits) — so nothing reaches the registry without having actually
-   run.
+   confirms `/cgit.css` (static, unaffected by repo count) responds,
+   checks `/`'s body actually looks like cgit's own output, and confirms
+   the image's own `HEALTHCHECK` reports `healthy`. A green `docker
+   build` doesn't guarantee a working container — this pipeline hit that
+   exact gap for real during development (see git log: a musl compat
+   flag silently dropped between two `make` invocations, then a
+   privilege-drop ordering bug in how lighttpd opens its log files) — so
+   nothing reaches the registry without having actually run first.
 3. **Publishes** to `ghcr.io/zopiya/cgit` with multiple tags for
    different needs:
    - `latest` — floating, current `main`.
    - `main` — same, explicit branch name.
-   - `<date>-<sha>` (e.g. `20260726-255bf93`) — a fixed, traceable tag
+   - `<date>-<sha>` (e.g. `20260726-85c44e1`) — a fixed, traceable tag
      unique per commit (uses the commit's own date, so re-running the
      workflow for the same commit doesn't produce a different tag).
      Pin to one of these for a reproducible deployment instead of
@@ -111,7 +113,7 @@ Pull on the NAS with:
 ```sh
 docker pull ghcr.io/zopiya/cgit:latest
 # or, pinned:
-docker pull ghcr.io/zopiya/cgit:20260726-255bf93
+docker pull ghcr.io/zopiya/cgit:20260726-85c44e1
 ```
 
 GHCR packages pushed via `GITHUB_TOKEN` default to **private** — either
