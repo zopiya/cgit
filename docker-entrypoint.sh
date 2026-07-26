@@ -26,6 +26,15 @@ if [ "$(id -u)" = "0" ]; then
 
     chown -R "$PUID:$PGID" /var/cache/cgit
 
+    # lighttpd opens server.errorlog/accesslog.filename itself (it's not
+    # just inheriting fd 1/2 as-is) — under `docker run -d`, the
+    # underlying pipe behind /dev/stdout and /dev/stderr is only
+    # writable by the container's original (root) owner by default, so
+    # that open() fails with EACCES once running as a dropped-privilege
+    # PUID, and lighttpd exits immediately at startup. Widen it once,
+    # here, while still root.
+    chmod 666 /dev/stdout /dev/stderr 2>/dev/null || true
+
     exec su-exec "$PUID:$PGID" lighttpd -D -f /etc/lighttpd/lighttpd.conf
 fi
 
