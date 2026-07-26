@@ -74,9 +74,31 @@ doesn't work once lighttpd has dropped to a non-root PUID (see
   rather than a hardcoded name, so `git clone` URLs shown in the UI are
   correct whether you're hitting the NAS by LAN IP, Tailscale IP, or (if
   you later add one) a reverse-proxied domain.
+- `config/cgit.css` — cgit's own default stylesheet with only
+  `font-family`/`font-size`/`line-height` changed (modern system font
+  stacks instead of bare `sans-serif`/`monospace`, 14px instead of 10pt)
+  — nothing else touched. Regenerate by re-applying the same substitution
+  to a newer upstream `cgit.css` if `CGIT_VERSION` is ever bumped.
+
+Enabled beyond the defaults: README rendering on each repo's "about" tab
+(`readme`/`about-filter`, Markdown → HTML via `py3-markdown`), syntax
+highlighting in the tree/blob view (`source-filter`, via `py3-pygments`),
+a per-repo commit-activity chart (`max-stats`), an owner column
+(`enable-index-owner`), and `section-from-path` (repos get grouped by
+their first path component under `scan-path` for free once/if they're
+ever organized into category subdirectories — flat `/repos/*.git` is
+unaffected). `module-link` cross-links submodule entries to their own
+repo page here, but only resolves correctly if a submodule's checkout
+directory name matches its corresponding repo's name on this instance —
+see the comment above it in `config/cgitrc` for why.
+
+Left off on purpose: gravatar/libravatar-based avatars — those need the
+container to fetch images from an external host per-request, which
+breaks the zero-network-calls-at-runtime property everything else here
+is built around.
 
 See [`cgitrc(5)`](https://git.zx2c4.com/cgit/tree/cgitrc.5.txt) for every
-option (auth filters, syntax highlighting, per-repo settings, etc).
+option (auth filters, per-repo settings, etc).
 
 ## CI: build, smoke test, publish
 

@@ -150,6 +150,12 @@ LABEL org.opencontainers.image.title="cgit" \
       org.opencontainers.image.version="${CGIT_VERSION}" \
       org.opencontainers.image.licenses="GPL-2.0-only"
 
+# python3/py3-pygments/py3-markdown: cgit's own bundled about-filter
+# (html-converters/md2html, for README rendering) and source-filter
+# (syntax-highlighting.py) are Python scripts that import the pygments/
+# markdown libraries directly rather than shelling out to a CLI tool —
+# both packages are needed at *runtime* (these filters run per-request,
+# not at build time).
 RUN apk add --no-cache \
         lighttpd \
         su-exec \
@@ -157,6 +163,9 @@ RUN apk add --no-cache \
         openssl \
         lua5.4-libs \
         tzdata \
+        python3 \
+        py3-pygments \
+        py3-markdown \
     && mkdir -p /var/cache/cgit /repos
 
 COPY --from=build /out/var/www/htdocs/cgit /var/www/htdocs/cgit
@@ -164,6 +173,10 @@ COPY --from=build /out/usr/local/lib/cgit/filters /usr/local/lib/cgit/filters
 
 COPY config/cgitrc /etc/cgitrc
 COPY config/lighttpd.conf /etc/lighttpd/lighttpd.conf
+# Overwrite cgit's own default stylesheet — a mechanical font-family/
+# font-size substitution over the upstream file (readability only, see
+# config/cgit.css's own diff history — no layout/color/structure changes).
+COPY config/cgit.css /var/www/htdocs/cgit/cgit.css
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 

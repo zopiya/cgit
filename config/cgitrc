@@ -21,7 +21,7 @@ cache-root=/var/cache/cgit
 cache-size=1000
 
 enable-index-links=1
-enable-index-owner=0
+enable-index-owner=1
 enable-commit-graph=1
 enable-log-filecount=1
 enable-log-linecount=1
@@ -30,12 +30,46 @@ enable-html-serving=1
 
 snapshots=tar.gz zip
 
+# Render each repo's README as its "about" tab, converted from Markdown to
+# HTML (fenced code blocks, tables, syntax-highlighted code — see
+# md2html's own source for the exact extensions it enables). The ":"
+# prefix means "read from the tip of the default branch", not a
+# filesystem path, so this works for mirrored repos too.
+readme=:README.md
+about-filter=/usr/local/lib/cgit/filters/html-converters/md2html
+
+# Syntax-highlighted source in the tree/blob view.
+source-filter=/usr/local/lib/cgit/filters/syntax-highlighting.py
+
+# Per-repo commit-activity chart (the "stats" tab). No extra flag needed —
+# unset means disabled, any of week/month/quarter/year enables it.
+max-stats=month
+
+# Cross-links a submodule entry in a tree listing to its own repo page —
+# *if* that submodule is also hosted on this same cgit instance. The
+# format string only ever receives the submodule directory's basename
+# and its commit SHA (not the URL from .gitmodules), so this only
+# resolves correctly when a submodule's checkout directory name matches
+# the name of the corresponding repo here (e.g. checked out as `foo`,
+# hosted as /repos/foo.git) — a naming convention to follow deliberately,
+# not something enforced automatically.
+module-link=/%s/commit/?id=%s
+
+# Groups repos in the index by their first path component under
+# scan-path — has no visible effect on the current flat /repos/*.git
+# layout, but takes effect for free the moment repos get organized into
+# category subdirectories (e.g. /repos/gitops/foo.git -> section
+# "gitops"). Must come before scan-path to apply to it.
+section-from-path=1
+
 # Auto-discover bare repositories (foo.git) mounted under /repos instead of
 # listing each one by hand with [repo.url]/[repo.path] blocks.
 scan-path=/repos
 
-# Filters shipped by cgit itself live here if you want to enable one, e.g.:
-#   readme=:README.md
-#   about-filter=/usr/local/lib/cgit/filters/html-converters/md2html
 # Lua filters (email-gravatar.lua, simple-authentication.lua, ...) run
-# in-process since this image was built with Lua filter support.
+# in-process since this image was built with Lua filter support — but
+# gravatar/libravatar specifically require the container to reach out to
+# an external image host at request time, which breaks the "zero network
+# calls at runtime" property this deployment is built around. Left
+# disabled on purpose; see filters/ in the cgit source for what's
+# available if that tradeoff is ever acceptable.
