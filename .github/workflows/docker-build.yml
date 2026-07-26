@@ -76,7 +76,17 @@ jobs:
             sleep 2
           done
           if [ "$ok" != "1" ]; then
-            echo "::error::cgit container never responded"
+            echo "::error::cgit container never responded (or non-2xx)"
+            echo "--- curl -v ---"
+            curl -v http://127.0.0.1:8080/ || true
+            echo "--- ls -la /var/www/htdocs/cgit ---"
+            docker exec cgit-smoke ls -la /var/www/htdocs/cgit || true
+            echo "--- cgit.cgi invoked directly (bypassing lighttpd) ---"
+            docker exec -e REQUEST_METHOD=GET -e PATH_INFO=/ -e QUERY_STRING= \
+              -e SCRIPT_NAME=/cgit.cgi -e SERVER_PROTOCOL=HTTP/1.1 \
+              -e CGIT_CONFIG=/etc/cgitrc \
+              cgit-smoke /var/www/htdocs/cgit/cgit.cgi || true
+            echo "--- docker logs ---"
             docker logs cgit-smoke
             exit 1
           fi
