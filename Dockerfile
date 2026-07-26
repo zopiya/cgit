@@ -176,4 +176,8 @@ VOLUME ["/repos", "/var/cache/cgit"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -q -O /dev/null --spider http://127.0.0.1:8080/ || exit 1
 
+# No USER here on purpose: the entrypoint needs to start as root to create
+# a user at the requested PUID/PGID and chown the cache volume to it,
+# then drops privileges itself via su-exec before exec'ing lighttpd. See
+# docker-entrypoint.sh.
 ENTRYPOINT ["docker-entrypoint.sh"]

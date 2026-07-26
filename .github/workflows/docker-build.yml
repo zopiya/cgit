@@ -36,6 +36,73 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=semver,pattern={{version}}
+            type=raw,value={{commit_date 'YYYYMMDD'}}-{{sha}}
+
+      # Load locally first (not pushed yet) so the image can be smoke
+      # tested before anything reaches the registry — a build succeeding
+      # doesn't guarantee the container actually runs (this exact pipeline
+      # briefly proved that: an earlier version passed `docker build`
+      # cleanly while silently rebuilding cgit.o without the musl compat
+      # flags right before `install`). Reuses this run's own layer cache,
+      # so the later push step is a fast no-op rebuild, not a second full
+      # compile.
+      - uses: docker/build-push-action@v7
+        id: build
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: |
+          set -e
+          image="$(echo '${{ steps.meta.outputs.tags }}' | head -n1)"
+          # Override the image's own HEALTHCHECK timing (interval=30s,
+          # right for production, needlessly slow for CI) just for this
+          # container — the check command itself is unchanged.
+          docker run -d --name cgit-smoke -p 127.0.0.1:8080:8080 \
+            --health-interval=3s --health-start-period=2s --health-retries=3 \
+            "$image"
+          ok=0
+          for i in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:8080/ > /tmp/smoke.html; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::error::cgit container never responded"
+            docker logs cgit-smoke
+            exit 1
+          fi
+          grep -qi "cgit" /tmp/smoke.html || { echo "::error::response didn't look like cgit"; cat /tmp/smoke.html; exit 1; }
+
+          # Also confirm the image's own HEALTHCHECK (internal wget call)
+          # actually works, not just that curl can reach it from outside —
+          # a broken/missing healthcheck binary wouldn't be caught by the
+          # check above.
+          healthy=0
+          for i in $(seq 1 20); do
+            status="$(docker inspect --format='{{.State.Health.Status}}' cgit-smoke)"
+            if [ "$status" = "healthy" ]; then
+              healthy=1
+              break
+            fi
+            sleep 3
+          done
+          if [ "$healthy" != "1" ]; then
+            echo "::error::container HEALTHCHECK never reported healthy (last status: $status)"
+            docker inspect --format='{{json .State.Health}}' cgit-smoke
+            docker logs cgit-smoke
+            exit 1
+          fi
+
+          docker rm -f cgit-smoke
 
       - uses: docker/build-push-action@v7
         with:

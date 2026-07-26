@@ -4,6 +4,9 @@ Builds [cgit](https://git.zx2c4.com/cgit/) `v1.3.1` from source against the
 exact Git release it's pinned to (`2.54.0`), served by lighttpd on port
 `8080`. Nothing else — no reverse proxy, no TLS, no domain baked in.
 
+Live at `ghcr.io/zopiya/cgit` — built and smoke-tested by CI on every push
+to `main`.
+
 ## Design: self-contained, no external dependencies
 
 This is meant to be a source of truth for GitOps repos (possibly including
@@ -11,9 +14,9 @@ the config that deploys other infrastructure), so it must never end up
 gated behind something it might itself be used to bootstrap:
 
 - `cgit.cgi` makes zero network calls at runtime. Fetching the cgit/Git
-  source from git.zx2c4.com/kernel.org only happens once, at `docker build`
-  time, and every download is checksum-verified (see `Dockerfile`) — the
-  running container never phones home to anything.
+  source only happens once, at `docker build` time, and every download is
+  integrity-checked (see `Dockerfile`) — the running container never
+  phones home to anything.
 - `docker-compose.yml` publishes plain `http://<nas-ip>:8080/` directly on
   the host. No VPN, no DNS record, no proxy has to exist or be up for this
   to work — it's reachable the moment the container starts, over LAN or
@@ -62,34 +65,77 @@ errors to stderr, so `docker logs cgit` shows everything.
 See [`cgitrc(5)`](https://git.zx2c4.com/cgit/tree/cgitrc.5.txt) for every
 option (auth filters, syntax highlighting, per-repo settings, etc).
 
-## CI
+## CI: build, smoke test, publish
 
-`.github/workflows/docker-build.yml` builds `linux/amd64` and pushes to
-`ghcr.io/<owner>/<repo>` on every push to `main` and on version tags
-(`v*`). Enable "Read and write permissions" for Actions under repo
-Settings → Actions → General if the push step gets a 403 (already done
-for this repo — `gh api -X PUT repos/<owner>/<repo>/actions/permissions/workflow -f default_workflow_permissions=write`).
-If you ever need arm64 too (e.g. a different NAS), add
-`docker/setup-qemu-action` back and set `platforms: linux/amd64,linux/arm64`
-— building Git from source under QEMU emulation is notably slower
-(~20-30 min vs under a minute), which is why it's left out for now. On
-your NAS:
+`.github/workflows/docker-build.yml`, on every push to `main` (and on
+`v*` tags):
+
+1. **Builds** `linux/amd64` only — arm64 isn't needed for this NAS, and
+   building Git from source under QEMU emulation is notably slower
+   (~20-30 min vs under a minute) for no benefit here. If a future NAS
+   needs it, add `docker/setup-qemu-action` back and set
+   `platforms: linux/amd64,linux/arm64`.
+2. **Smoke tests** the built image before anything is pushed: runs it,
+   curls `/` for an actual cgit response, and confirms the image's own
+   `HEALTHCHECK` reports `healthy`. A green `docker build` doesn't
+   guarantee a working container — this pipeline actually hit that
+   exact gap once already (see git log around the multi-step debugging
+   commits) — so nothing reaches the registry without having actually
+   run.
+3. **Publishes** to `ghcr.io/zopiya/cgit` with multiple tags for
+   different needs:
+   - `latest` — floating, current `main`.
+   - `main` — same, explicit branch name.
+   - `<date>-<sha>` (e.g. `20260726-255bf93`) — a fixed, traceable tag
+     unique per commit (uses the commit's own date, so re-running the
+     workflow for the same commit doesn't produce a different tag).
+     Pin to one of these for a reproducible deployment instead of
+     riding `latest`.
+   - `<version>` — only on `v*` tag pushes (semver).
+
+Pull on the NAS with:
 
 ```sh
-docker pull ghcr.io/<owner>/<repo>:latest
+docker pull ghcr.io/zopiya/cgit:latest
+# or, pinned:
+docker pull ghcr.io/zopiya/cgit:20260726-255bf93
 ```
+
+GHCR packages pushed via `GITHUB_TOKEN` default to **private** — either
+make the package public in its GitHub settings, or `docker login ghcr.io`
+on the NAS with a PAT that has `read:packages`.
+
+(Workflow permissions for `GITHUB_TOKEN` were already flipped to
+read+write for this repo — `packages: write` is needed to push —
+via `gh api -X PUT repos/zopiya/cgit/actions/permissions/workflow -f default_workflow_permissions=write`,
+since the repo default was read-only.)
 
 ## Upgrading
 
-Bump `CGIT_VERSION` / `GIT_VERSION` build args in the `Dockerfile`, and
-recompute `CGIT_SHA256` / `GIT_SHA256` to match:
+In the `Dockerfile`:
 
-```sh
-curl -fsSL https://git.zx2c4.com/cgit/snapshot/cgit-<version>.tar.xz | sha256sum
-curl -fsSL https://www.kernel.org/pub/software/scm/git/git-<version>.tar.xz | sha256sum
-```
+- **cgit**: bump `CGIT_VERSION` (e.g. `1.3.2`), then update `CGIT_COMMIT`
+  to match — cgit source is fetched via `git clone --branch vX.Y.Z`
+  rather than a tarball (see the fetch-stage comments for why), and the
+  clone is verified against this exact commit as defense against a moved
+  tag:
+  ```sh
+  git ls-remote https://git.zx2c4.com/cgit v<version>   # get the tag
+  git clone --depth 1 --branch v<version> https://git.zx2c4.com/cgit /tmp/c
+  git -C /tmp/c rev-parse HEAD                           # -> CGIT_COMMIT
+  ```
+  (v1.3.1 is an *annotated* tag, so `ls-remote`'s hash is the tag object,
+  not the commit — always get `CGIT_COMMIT` from `rev-parse HEAD` after
+  an actual clone+checkout, not from `ls-remote` directly.)
+- **Git**: bump `GIT_VERSION` to match the `GIT_VER` value in the target
+  cgit release's own `Makefile`
+  (https://git.zx2c4.com/cgit/plain/Makefile?h=vX.Y.Z) — cgit links Git's
+  object files directly into `cgit.cgi`, so a mismatch can fail to build.
+  Recompute `GIT_SHA256` against kernel.org's own published checksums:
+  ```sh
+  curl -fsSL https://www.kernel.org/pub/software/scm/git/sha256sums.asc \
+    | grep "git-<version>.tar.xz"
+  ```
 
-Keep `GIT_VERSION` matching the `GIT_VER` value in the target cgit
-release's own `Makefile`
-(https://git.zx2c4.com/cgit/plain/Makefile?h=vX.Y.Z) — cgit links Git's
-object files directly into `cgit.cgi`, so a mismatch can fail to build.
+After bumping either, push to `main` — CI rebuilds, smoke tests, and
+publishes automatically; nothing to run by hand.

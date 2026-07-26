@@ -9,6 +9,12 @@ root-title=Git Repositories
 root-desc=Self-hosted repositories
 
 virtual-root=/
+# Derived from the request itself rather than a fixed hostname, so the
+# clone command shown in the UI is correct whether you're hitting this by
+# LAN IP, Tailscale IP, or (if one's ever added later) a proxied domain.
+# Hardcoded to http:// though — if this ever sits behind a TLS-terminating
+# proxy, override with an explicit https://your.domain/$CGIT_REPO_URL here,
+# since cgit has no built-in way to detect the original request scheme.
 clone-url=http://$HTTP_HOST/$CGIT_REPO_URL
 
 cache-root=/var/cache/cgit

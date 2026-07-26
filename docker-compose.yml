@@ -1,8 +1,12 @@
 services:
   cgit:
     build: .
-    # Or, once CI has published it:
-    # image: ghcr.io/<your-github-user>/cgit:latest
+    # Or pull the CI-published image instead of building locally:
+    #   image: ghcr.io/zopiya/cgit:latest
+    # `latest`/`main` float; for a pinned, traceable deployment use the
+    # dated tag CI also publishes on every build, e.g.:
+    #   image: ghcr.io/zopiya/cgit:20260726-255bf93
+    # (see the repo's package page or `git log` for available tags/shas)
     container_name: cgit
     restart: unless-stopped
     environment:
