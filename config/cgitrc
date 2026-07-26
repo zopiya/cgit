@@ -1,0 +1,35 @@
+# /etc/cgitrc — see cgitrc(5) for the full option reference.
+
+css=/cgit.css
+logo=/cgit.png
+favicon=/favicon.ico
+robots=/robots.txt
+
+root-title=Git Repositories
+root-desc=Self-hosted repositories
+
+virtual-root=/
+clone-url=http://$HTTP_HOST/$CGIT_REPO_URL
+
+cache-root=/var/cache/cgit
+cache-size=1000
+
+enable-index-links=1
+enable-index-owner=0
+enable-commit-graph=1
+enable-log-filecount=1
+enable-log-linecount=1
+enable-blame=1
+enable-html-serving=1
+
+snapshots=tar.gz zip
+
+# Auto-discover bare repositories (foo.git) mounted under /repos instead of
+# listing each one by hand with [repo.url]/[repo.path] blocks.
+scan-path=/repos
+
+# Filters shipped by cgit itself live here if you want to enable one, e.g.:
+#   readme=:README.md
+#   about-filter=/usr/local/lib/cgit/filters/html-converters/md2html
+# Lua filters (email-gravatar.lua, simple-authentication.lua, ...) run
+# in-process since this image was built with Lua filter support.

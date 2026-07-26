@@ -1,0 +1,26 @@
+services:
+  cgit:
+    build: .
+    # Or, once CI has published it:
+    # image: ghcr.io/<your-github-user>/cgit:latest
+    container_name: cgit
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "${TZ:-UTC}"
+    volumes:
+      - /volume1/git-repos:/repos:ro
+      - cgit-cache:/var/cache/cgit
+      # Uncomment to override the baked-in config:
+      # - ./config/cgitrc:/etc/cgitrc:ro
+    # Published directly on the LAN/Tailscale IP — no VPN, proxy, or
+    # domain setup required. If you later put a Caddy (or anything else)
+    # in front for a custom domain, run it as its own separate deployment
+    # reverse-proxying to this NAS's IP on this port — this container
+    # doesn't need to know about it.
+    ports:
+      - "8080:8080"
+
+volumes:
+  cgit-cache:
