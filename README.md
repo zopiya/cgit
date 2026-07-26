@@ -49,8 +49,14 @@ Open `http://<nas-lan-ip>:8080/` or `http://<nas-tailscale-ip>:8080/` —
 both work identically, it's the same bound port either way.
 
 A `HEALTHCHECK` is built into the image (`docker ps` / `docker inspect`
-will show container health), and lighttpd logs requests to stdout and
-errors to stderr, so `docker logs cgit` shows everything.
+will show container health). `docker logs cgit` shows errors (lighttpd's
+own startup/runtime errors go to its default stderr); per-request access
+logs go to `/var/cache/cgit/access.log` inside the cache volume instead —
+`accesslog.filename` has no "just use the inherited stdout fd" fallback
+the way the error log does, and pointing it at `/dev/stdout` directly
+doesn't work once lighttpd has dropped to a non-root PUID (see
+`config/lighttpd.conf` for the full explanation). View with
+`docker exec cgit tail -f /var/cache/cgit/access.log`.
 
 ## Configuration
 
