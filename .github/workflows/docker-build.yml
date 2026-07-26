@@ -67,29 +67,35 @@ jobs:
           docker run -d --name cgit-smoke -p 127.0.0.1:8080:8080 \
             --health-interval=3s --health-start-period=2s --health-retries=3 \
             "$image"
+          # Poll a static asset (always 200 once lighttpd is up) rather
+          # than / — cgit legitimately returns 404 for / when scan-path
+          # finds zero repos, which is exactly this smoke-test container's
+          # situation (no /repos mounted). See Dockerfile's HEALTHCHECK
+          # comment for the same reasoning.
           ok=0
           for i in $(seq 1 15); do
-            if curl -fsS http://127.0.0.1:8080/ > /tmp/smoke.html; then
+            if curl -fsS http://127.0.0.1:8080/cgit.css > /dev/null; then
               ok=1
               break
             fi
             sleep 2
           done
           if [ "$ok" != "1" ]; then
-            echo "::error::cgit container never responded (or non-2xx)"
-            echo "--- curl -v ---"
-            curl -v http://127.0.0.1:8080/ || true
+            echo "::error::cgit container never responded"
+            echo "--- curl -v /cgit.css ---"
+            curl -v http://127.0.0.1:8080/cgit.css || true
             echo "--- ls -la /var/www/htdocs/cgit ---"
             docker exec cgit-smoke ls -la /var/www/htdocs/cgit || true
-            echo "--- cgit.cgi invoked directly (bypassing lighttpd) ---"
-            docker exec -e REQUEST_METHOD=GET -e PATH_INFO=/ -e QUERY_STRING= \
-              -e SCRIPT_NAME=/cgit.cgi -e SERVER_PROTOCOL=HTTP/1.1 \
-              -e CGIT_CONFIG=/etc/cgitrc \
-              cgit-smoke /var/www/htdocs/cgit/cgit.cgi || true
             echo "--- docker logs ---"
             docker logs cgit-smoke
             exit 1
           fi
+
+          # Separately confirm cgit.cgi itself actually renders (not just
+          # that lighttpd is up) — status code isn't checked here on
+          # purpose (see above: 404 is valid for an empty repo list),
+          # just that the response body looks like real cgit output.
+          curl -sS http://127.0.0.1:8080/ > /tmp/smoke.html
           grep -qi "cgit" /tmp/smoke.html || { echo "::error::response didn't look like cgit"; cat /tmp/smoke.html; exit 1; }
 
           # Also confirm the image's own HEALTHCHECK (internal wget call)

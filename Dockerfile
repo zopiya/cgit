@@ -170,11 +170,18 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 EXPOSE 8080
 VOLUME ["/repos", "/var/cache/cgit"]
 
+# Checks /cgit.css (a static file lighttpd serves directly) rather than
+# / — cgit itself returns HTTP 404 for / whenever scan-path finds zero
+# repos, which is completely legitimate (e.g. right after first deploy,
+# before anything's been dropped into /repos yet), and wget --spider
+# treats any non-2xx as failure. A healthcheck shouldn't couple
+# "container is up and serving" to "happens to have repos configured".
+#
 # wget is a busybox applet already present in Alpine, so this needs no
 # extra package. --spider avoids downloading the body, just checks the
 # response.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q -O /dev/null --spider http://127.0.0.1:8080/ || exit 1
+    CMD wget -q -O /dev/null --spider http://127.0.0.1:8080/cgit.css || exit 1
 
 # No USER here on purpose: the entrypoint needs to start as root to create
 # a user at the requested PUID/PGID and chown the cache volume to it,

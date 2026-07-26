@@ -48,6 +48,13 @@ maintain.
 Open `http://<nas-lan-ip>:8080/` or `http://<nas-tailscale-ip>:8080/` —
 both work identically, it's the same bound port either way.
 
+Before anything's dropped into `/repos`, that page returns **HTTP 404**
+with a "No repositories found" body — that's cgit's own normal behavior
+for an empty repo list, not a broken deployment. (Because of this, the
+`HEALTHCHECK` and CI's smoke test both check `/cgit.css` — a static file
+lighttpd serves directly — rather than `/`, so an empty repo list is
+never mistaken for the container being down.)
+
 A `HEALTHCHECK` is built into the image (`docker ps` / `docker inspect`
 will show container health). `docker logs cgit` shows errors (lighttpd's
 own startup/runtime errors go to its default stderr); per-request access
