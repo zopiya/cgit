@@ -64,11 +64,16 @@ option (auth filters, syntax highlighting, per-repo settings, etc).
 
 ## CI
 
-`.github/workflows/docker-build.yml` builds `linux/amd64` + `linux/arm64`
-(covers both x86 and ARM-based NAS/SBC hardware) and pushes to
+`.github/workflows/docker-build.yml` builds `linux/amd64` and pushes to
 `ghcr.io/<owner>/<repo>` on every push to `main` and on version tags
 (`v*`). Enable "Read and write permissions" for Actions under repo
-Settings → Actions → General if the push step gets a 403. On your NAS:
+Settings → Actions → General if the push step gets a 403 (already done
+for this repo — `gh api -X PUT repos/<owner>/<repo>/actions/permissions/workflow -f default_workflow_permissions=write`).
+If you ever need arm64 too (e.g. a different NAS), add
+`docker/setup-qemu-action` back and set `platforms: linux/amd64,linux/arm64`
+— building Git from source under QEMU emulation is notably slower
+(~20-30 min vs under a minute), which is why it's left out for now. On
+your NAS:
 
 ```sh
 docker pull ghcr.io/<owner>/<repo>:latest

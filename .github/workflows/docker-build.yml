@@ -20,8 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: docker/setup-qemu-action@v4
-
       - uses: docker/setup-buildx-action@v4
 
       - uses: docker/login-action@v4
@@ -39,14 +37,10 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
 
-      # arm64 is emulated via QEMU on this amd64 runner, so compiling Git
-      # + cgit from source for it is noticeably slower than the amd64 leg
-      # (expect ~20-30 min total, not seconds) — this is expected, not a
-      # sign of something wrong.
       - uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

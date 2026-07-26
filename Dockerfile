@@ -125,11 +125,19 @@ WORKDIR /usr/src/cgit
 # REG_STARTEND regex extension or ship libintl.h — both are standard,
 # well-known flags for building Git on Alpine; Git's own compile error
 # for the former literally names the flag to use.
+#
+# One `make ... install` call, not `make ... && make install`: `install`
+# already depends on `all`, and splitting it into two separate `make`
+# invocations meant only the first carried these flags — the second
+# started a fresh make process without them, so cgit's own CFLAGS
+# change-tracking (CGIT-CFLAGS) detected the difference and silently
+# force-rebuilt cgit.o without the musl workarounds, right before install.
 RUN make \
         LUA_PKGCONFIG=lua5.4 \
         NO_REGEX=NeedsStartEnd \
         NO_GETTEXT=YesPlease \
-    && make DESTDIR=/out install
+        DESTDIR=/out \
+        install
 
 ########################################
 # 3. Runtime stage
