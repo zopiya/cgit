@@ -86,9 +86,17 @@ RUN ok=0; \
 # shelling out to a separate git binary), so the matching Git source has
 # to be fetched and built alongside it. This replicates cgit's own
 # `make get-git` target manually so the download can be checksummed first.
+# `git clone` (without --recurse-submodules) still creates an empty
+# directory at cgit's registered "git" submodule path, even though it's
+# not populated — so cgit/git already exists here. `mv src existing-dir`
+# moves src *into* that directory instead of replacing it (silently
+# producing cgit/git/git-2.54.0/... with no Makefile at cgit/git itself,
+# which made `make` fail near-instantly against an empty dir). Has to be
+# removed first, same as cgit's own `make get-git` target does.
 RUN curl ${CURL_FLAGS} "https://www.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.xz" -o git.tar.xz \
     && echo "${GIT_SHA256}  git.tar.xz" | sha256sum -c - \
     && tar -xf git.tar.xz \
+    && rm -rf cgit/git \
     && mv "git-${GIT_VERSION}" cgit/git \
     && rm git.tar.xz
 
