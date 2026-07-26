@@ -21,17 +21,20 @@
 
 ARG ALPINE_VERSION=3.22
 ARG CGIT_VERSION=1.3.1
+# The commit the v1.3.1 tag resolves to (git rev-parse v1.3.1^{commit} —
+# v1.3.1 is an annotated tag, so this is NOT the same hash `git ls-remote`
+# shows, which is the tag object, not the commit), pinned independently of
+# the tag name so a moved/replaced tag can't silently change what gets built.
+ARG CGIT_COMMIT=044821677c774cd24f25f1818ea51d09cc64b006
 # Must match the GIT_VER pinned in this cgit release's own Makefile
 # (https://git.zx2c4.com/cgit/plain/Makefile?h=vX.Y.Z) — cgit links Git's
 # object files directly into cgit.cgi, so a mismatch can fail to build.
 ARG GIT_VERSION=2.54.0
 
-# Pinned so a corrupted download, MITM'd mirror, or unexpected upstream
-# content change fails the build loudly instead of silently compiling
-# something unverified. Recompute with:
-#   curl -fsSL <url> | sha256sum
-# whenever CGIT_VERSION/GIT_VERSION above are bumped.
-ARG CGIT_SHA256=c40fd71e120783d5e57d822208f3e17333cde2cd4baf3e7c8c75630b68afe12a
+# kernel.org publishes an official signed sha256sums.asc for Git releases —
+# pinned here so a corrupted download or unexpected upstream content change
+# fails the build loudly instead of silently compiling something unverified.
+# Recompute with: curl -fsSL <url> | sha256sum
 ARG GIT_SHA256=f689162364c10de79ef89aa8dbf48731eb057e34edbbd20aca510ce0154681a3
 
 ########################################
@@ -40,19 +43,16 @@ ARG GIT_SHA256=f689162364c10de79ef89aa8dbf48731eb057e34edbbd20aca510ce0154681a3
 # Pinned to the build host's own platform ($BUILDPLATFORM, a predefined
 # buildx ARG) rather than each requested target platform. Without this,
 # a multi-platform build (linux/amd64 + linux/arm64) would run this stage
-# once per target platform, and both legs would hit the exact same
-# on-the-fly-generated snapshot URL concurrently — which is what caused
-# a checksum mismatch in practice (git.zx2c4.com serving a bad response
-# to one of two simultaneous requests for the same snapshot). Fetching
-# once and sharing the verified result via COPY avoids the race and
-# halves the download traffic.
+# once per target platform — which used to mean both legs hit the same
+# network resource concurrently. Fetching once and sharing the result via
+# COPY avoids that and halves the download traffic besides.
 FROM --platform=$BUILDPLATFORM alpine:${ALPINE_VERSION} AS fetch
 ARG CGIT_VERSION
+ARG CGIT_COMMIT
 ARG GIT_VERSION
-ARG CGIT_SHA256
 ARG GIT_SHA256
 
-RUN apk add --no-cache curl tar xz
+RUN apk add --no-cache curl tar xz git
 
 # --retry-all-errors casts a wider net than the default retryable status
 # codes (catches odd transient responses, not just 5xx/408/429); -f makes
@@ -62,11 +62,25 @@ ARG CURL_FLAGS="-fsSL --retry 5 --retry-all-errors --retry-connrefused --retry-d
 
 WORKDIR /src
 
-RUN curl ${CURL_FLAGS} "https://git.zx2c4.com/cgit/snapshot/cgit-${CGIT_VERSION}.tar.xz" -o cgit.tar.xz \
-    && echo "${CGIT_SHA256}  cgit.tar.xz" | sha256sum -c - \
-    && tar -xf cgit.tar.xz \
-    && mv "cgit-${CGIT_VERSION}" cgit \
-    && rm cgit.tar.xz
+# git.zx2c4.com/cgit's own snapshot-tarball CGI endpoint has turned out to
+# be flaky in practice (observed sustained 502s from CI, unrelated to this
+# Dockerfile). Its git smart-HTTP endpoint is a separate, more
+# battle-tested code path and stayed healthy throughout, so source is
+# fetched via `git clone` instead — which also verifies object integrity
+# as an inherent part of the protocol, so the explicit HEAD check below is
+# defense-in-depth against a moved tag, not a substitute for a checksum.
+# (git itself has no built-in HTTP retry option, hence the shell loop.)
+RUN ok=0; \
+    for i in 1 2 3 4 5; do \
+        git clone --depth 1 --branch "v${CGIT_VERSION}" https://git.zx2c4.com/cgit cgit && { ok=1; break; }; \
+        echo "clone attempt $i failed, retrying..." >&2; \
+        rm -rf cgit; \
+        sleep 5; \
+    done; \
+    [ "$ok" = "1" ] || { echo "git clone failed after 5 attempts" >&2; exit 1; }; \
+    cd cgit \
+    && [ "$(git rev-parse HEAD)" = "${CGIT_COMMIT}" ] \
+    && rm -rf .git
 
 # cgit links Git's own object files directly into cgit.cgi (rather than
 # shelling out to a separate git binary), so the matching Git source has
