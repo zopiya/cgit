@@ -120,7 +120,15 @@ WORKDIR /usr/src/cgit
 # Alpine's lua5.4 pkg-config file isn't in cgit's Lua autodetection list
 # (luajit/lua/lua5.2/lua5.1), so it has to be specified explicitly or the
 # build silently links without Lua filter support.
-RUN make LUA_PKGCONFIG=lua5.4 \
+#
+# NO_REGEX / NO_GETTEXT: musl libc (unlike glibc) doesn't implement the
+# REG_STARTEND regex extension or ship libintl.h — both are standard,
+# well-known flags for building Git on Alpine; Git's own compile error
+# for the former literally names the flag to use.
+RUN make \
+        LUA_PKGCONFIG=lua5.4 \
+        NO_REGEX=NeedsStartEnd \
+        NO_GETTEXT=YesPlease \
     && make DESTDIR=/out install
 
 ########################################
