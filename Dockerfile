@@ -35,32 +35,32 @@ ARG CGIT_SHA256=c40fd71e120783d5e57d822208f3e17333cde2cd4baf3e7c8c75630b68afe12a
 ARG GIT_SHA256=f689162364c10de79ef89aa8dbf48731eb057e34edbbd20aca510ce0154681a3
 
 ########################################
-# 1. Build stage
+# 1. Fetch stage — runs once, natively
 ########################################
-FROM alpine:${ALPINE_VERSION} AS build
+# Pinned to the build host's own platform ($BUILDPLATFORM, a predefined
+# buildx ARG) rather than each requested target platform. Without this,
+# a multi-platform build (linux/amd64 + linux/arm64) would run this stage
+# once per target platform, and both legs would hit the exact same
+# on-the-fly-generated snapshot URL concurrently — which is what caused
+# a checksum mismatch in practice (git.zx2c4.com serving a bad response
+# to one of two simultaneous requests for the same snapshot). Fetching
+# once and sharing the verified result via COPY avoids the race and
+# halves the download traffic.
+FROM --platform=$BUILDPLATFORM alpine:${ALPINE_VERSION} AS fetch
 ARG CGIT_VERSION
 ARG GIT_VERSION
 ARG CGIT_SHA256
 ARG GIT_SHA256
 
-RUN apk add --no-cache \
-        build-base \
-        curl \
-        tar \
-        xz \
-        pkgconf \
-        perl \
-        python3 \
-        zlib-dev \
-        openssl-dev \
-        lua5.4-dev
+RUN apk add --no-cache curl tar xz
 
-# --retry* guards against transient network blips during CI/rebuilds;
-# -f makes curl fail loudly on HTTP errors instead of writing an error
-# page that would otherwise surface as a confusing "not an xz file" error.
-ARG CURL_FLAGS="-fsSL --retry 3 --retry-connrefused --retry-delay 2"
+# --retry-all-errors casts a wider net than the default retryable status
+# codes (catches odd transient responses, not just 5xx/408/429); -f makes
+# curl fail loudly on HTTP errors instead of writing an error page that
+# would otherwise surface as a confusing "not an xz file" error.
+ARG CURL_FLAGS="-fsSL --retry 5 --retry-all-errors --retry-connrefused --retry-delay 3"
 
-WORKDIR /usr/src
+WORKDIR /src
 
 RUN curl ${CURL_FLAGS} "https://git.zx2c4.com/cgit/snapshot/cgit-${CGIT_VERSION}.tar.xz" -o cgit.tar.xz \
     && echo "${CGIT_SHA256}  cgit.tar.xz" | sha256sum -c - \
@@ -68,18 +68,32 @@ RUN curl ${CURL_FLAGS} "https://git.zx2c4.com/cgit/snapshot/cgit-${CGIT_VERSION}
     && mv "cgit-${CGIT_VERSION}" cgit \
     && rm cgit.tar.xz
 
-WORKDIR /usr/src/cgit
-
 # cgit links Git's own object files directly into cgit.cgi (rather than
 # shelling out to a separate git binary), so the matching Git source has
 # to be fetched and built alongside it. This replicates cgit's own
 # `make get-git` target manually so the download can be checksummed first.
 RUN curl ${CURL_FLAGS} "https://www.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.xz" -o git.tar.xz \
     && echo "${GIT_SHA256}  git.tar.xz" | sha256sum -c - \
-    && rm -rf git \
     && tar -xf git.tar.xz \
-    && mv "git-${GIT_VERSION}" git \
+    && mv "git-${GIT_VERSION}" cgit/git \
     && rm git.tar.xz
+
+########################################
+# 2. Build stage — runs per target platform
+########################################
+FROM alpine:${ALPINE_VERSION} AS build
+
+RUN apk add --no-cache \
+        build-base \
+        pkgconf \
+        perl \
+        python3 \
+        zlib-dev \
+        openssl-dev \
+        lua5.4-dev
+
+COPY --from=fetch /src/cgit /usr/src/cgit
+WORKDIR /usr/src/cgit
 
 # Alpine's lua5.4 pkg-config file isn't in cgit's Lua autodetection list
 # (luajit/lua/lua5.2/lua5.1), so it has to be specified explicitly or the
@@ -88,7 +102,7 @@ RUN make LUA_PKGCONFIG=lua5.4 \
     && make DESTDIR=/out install
 
 ########################################
-# 2. Runtime stage
+# 3. Runtime stage
 ########################################
 FROM alpine:${ALPINE_VERSION} AS runtime
 ARG CGIT_VERSION
