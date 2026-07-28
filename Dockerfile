@@ -158,7 +158,6 @@ LABEL org.opencontainers.image.title="cgit" \
 # not at build time).
 RUN apk add --no-cache \
         lighttpd \
-        lighttpd-mod-deflate \
         su-exec \
         zlib \
         openssl \
