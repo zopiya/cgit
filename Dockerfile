@@ -158,6 +158,7 @@ LABEL org.opencontainers.image.title="cgit" \
 # not at build time).
 RUN apk add --no-cache \
         lighttpd \
+        lighttpd-mod-deflate \
         su-exec \
         zlib \
         openssl \
@@ -173,10 +174,11 @@ COPY --from=build /out/usr/local/lib/cgit/filters /usr/local/lib/cgit/filters
 
 COPY config/cgitrc /etc/cgitrc
 COPY config/lighttpd.conf /etc/lighttpd/lighttpd.conf
-# Overwrite cgit's own default stylesheet — a mechanical font-family/
-# font-size substitution over the upstream file (readability only, see
-# config/cgit.css's own diff history — no layout/color/structure changes).
-COPY config/cgit.css /var/www/htdocs/cgit/cgit.css
+# Local style preferences (fonts) layered AFTER cgit's
+# own unmodified stylesheet via a second css= line in cgitrc — bumping
+# CGIT_VERSION no longer needs any stylesheet re-merge, everything custom
+# lives in this one small file.
+COPY config/custom.css /var/www/htdocs/cgit/custom.css
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 

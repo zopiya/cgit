@@ -1,0 +1,44 @@
+/*
+ * custom.css — local style preferences, layered AFTER cgit's own default
+ * stylesheet (cgitrc has two css= lines; each becomes its own <link>, later
+ * wins). Upstream cgit.css is served unmodified straight from the cgit
+ * build, so bumping CGIT_VERSION needs no stylesheet re-merge — only this
+ * file is ours.
+ */
+
+/* Modern system font stack instead of bare sans-serif; 14px/1.5 instead of
+ * 10pt for readability on modern displays. */
+div#cgit {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	font-size: 14px;
+	line-height: 1.5;
+}
+
+/* Mirrors every selector upstream cgit.css (v1.3.1) sets `font-family:
+ * monospace` on, with a proper system monospace stack. If code views ever
+ * fall back to a default monospace font after a cgit bump, diff the new
+ * upstream cgit.css for `monospace` and re-sync this list. */
+div#cgit table.list td.commitgraph,
+div#cgit table.list td.logsubject,
+div#cgit table.list td.logmsg,
+div#cgit a.ls-blob, div#cgit a.ls-dir, div#cgit .ls-mod,
+div#cgit td.ls-size,
+div#cgit td.ls-mode,
+div#cgit table.bin-blob th,
+div#cgit table.bin-blob td,
+div#cgit div.commit-msg,
+div#cgit div.notes,
+div#cgit table.diff td,
+div#cgit table.ssdiff td,
+div#cgit .oid {
+	font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* Dense code views (commit messages, diffs) read better a touch smaller
+ * than the surrounding UI. */
+div#cgit div.commit-msg,
+div#cgit div.notes,
+div#cgit table.diff td,
+div#cgit table.ssdiff td {
+	font-size: 13px;
+}

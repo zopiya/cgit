@@ -1,0 +1,12 @@
+# Keep the GitHub Actions versions in .github/workflows/ current.
+#
+# Deliberately scoped to github-actions only: the Dockerfile pins cgit/Git
+# by commit+checksum and is bumped by hand (see README "Upgrading"), and
+# Alpine package updates flow through the weekly scheduled rebuild — so
+# there's nothing else here an automated version bump should touch.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

@@ -1,9 +1,18 @@
 # /etc/cgitrc — see cgitrc(5) for the full option reference.
 
 css=/cgit.css
+# Local preferences (fonts) layered over cgit's own
+# unmodified stylesheet — css= may be given multiple times, each entry
+# becomes its own <link> in the page head, later wins. Keeping upstream
+# cgit.css pristine means bumping CGIT_VERSION needs no stylesheet
+# re-merge; everything custom lives in config/custom.css.
+css=/custom.css
 logo=/cgit.png
 favicon=/favicon.ico
-robots=/robots.txt
+# Content of the <meta name="robots"> tag — NOT a file path (the actual
+# /robots.txt is a static file cgit installs, served directly by
+# lighttpd). Private NAS: ask crawlers not to index anything.
+robots=noindex, nofollow
 
 root-title=Git Repositories
 root-desc=Self-hosted repositories
@@ -28,14 +37,30 @@ enable-log-linecount=1
 enable-blame=1
 enable-html-serving=1
 
+# Branch listings by most recent commit first (default: by name) — on
+# repos with many branches the active ones surface to the top.
+branch-sort=age
+
+# Refuse to render blobs larger than this (in KB) as HTML — the default 0
+# (unlimited) lets a stray package-lock.json or minified bundle hang the
+# browser tab. Over the limit, cgit shows a "blob too large" page instead.
+max-blob-size=512
+
 snapshots=tar.gz zip
 
 # Render each repo's README as its "about" tab, converted from Markdown to
 # HTML (fenced code blocks, tables, syntax-highlighted code — see
 # md2html's own source for the exact extensions it enables). The ":"
 # prefix means "read from the tip of the default branch", not a
-# filesystem path, so this works for mirrored repos too.
+# filesystem path, so this works for mirrored repos too. readme= may be
+# repeated; cgit uses the first filename that exists (case-sensitive, so
+# lowercase variants are listed explicitly).
 readme=:README.md
+readme=:readme.md
+readme=:README.markdown
+readme=:readme.markdown
+readme=:README
+readme=:readme
 about-filter=/usr/local/lib/cgit/filters/html-converters/md2html
 
 # Syntax-highlighted source in the tree/blob view.
@@ -55,12 +80,32 @@ max-stats=month
 # not something enforced automatically.
 module-link=/%s/commit/?id=%s
 
+# --- Options that must be set BEFORE scan-path to take effect on it ---
+
 # Groups repos in the index by their first path component under
 # scan-path — has no visible effect on the current flat /repos/*.git
 # layout, but takes effect for free the moment repos get organized into
 # category subdirectories (e.g. /repos/gitops/foo.git -> section
-# "gitops"). Must come before scan-path to apply to it.
+# "gitops"). A per-repo gitweb.category (below) overrides this.
 section-from-path=1
+
+# Strip a trailing ".git" from discovered repos' URLs and names, so
+# /repos/foo.git shows up as "foo" and clones at http://<host>/foo.
+remove-suffix=1
+
+# Read per-repo settings from each repo's own git config instead of
+# maintaining [repo.*] blocks here — metadata travels with the repo, and
+# can be set from anywhere you can push from, no SSH round trip to the
+# NAS. The keys gitweb.owner, gitweb.category, gitweb.description and
+# gitweb.homepage map to cgit's repo.owner/section/desc/homepage; any
+# key starting cgit.* maps to the corresponding repo.* setting. Examples
+# (run inside the bare repo):
+#   git config cgit.desc "My project"
+#   git config gitweb.owner "zopiya"
+#   git config gitweb.category "infra"     # index section
+#   git config cgit.hide 1                 # keep serving, hide from index
+#   git config cgit.defbranch trunk
+enable-git-config=1
 
 # Auto-discover bare repositories (foo.git) mounted under /repos instead of
 # listing each one by hand with [repo.url]/[repo.path] blocks.

@@ -26,5 +26,29 @@ services:
     ports:
       - "8080:8080"
 
+    # --- Hardening ---
+    # The entrypoint runs as root only long enough to create the PUID/PGID
+    # account and chown the cache volume, then drops to it permanently via
+    # su-exec — so nothing after startup needs real root power. Drop every
+    # capability and add back just what that startup sequence requires.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    # A dropped-privilege process can never regain privileges via exec —
+    # compatible with the root->PUID drop above (dropping isn't affected).
+    security_opt:
+      - no-new-privileges:true
+    # CGI upload spool on RAM-backed tmpfs. (read_only: true is deliberately
+    # NOT set: the runtime user creation writes /etc/passwd inside the
+    # container — fixing that would mean a build-time user and losing
+    # PUID/PGID flexibility.)
+    tmpfs:
+      - /tmp
+
 volumes:
   cgit-cache:

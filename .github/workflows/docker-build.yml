@@ -6,7 +6,22 @@ on:
     tags: ["v*"]
     paths-ignore:
       - "**.md"
+  # Weekly rebuild of the same sources so Alpine package security fixes
+  # (lighttpd, python3, ...) flow into `latest` even while the repo itself
+  # is quiet — a "set and forget" NAS service shouldn't carry year-old
+  # userspace just because nobody committed. GitHub disables scheduled
+  # runs after 60 days of repo inactivity; an occasional commit or manual
+  # run re-arms them.
+  schedule:
+    - cron: "17 3 * * 1"
   workflow_dispatch: {}
+
+# Serialize builds per (event type, ref): a quick second push supersedes
+# the in-flight build instead of racing it at the registry, while a
+# scheduled rebuild never cancels a push build or vice versa.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
@@ -61,17 +76,36 @@ jobs:
         run: |
           set -e
           image="$(echo '${{ steps.meta.outputs.tags }}' | head -n1)"
+
+          # Fixture: one bare repo containing a README (exercises the
+          # md2html about-filter), a Python file (exercises the pygments
+          # source-filter), and a cgit.desc set via git config (exercises
+          # enable-git-config). Built BEFORE the container starts so it's
+          # present when scan-path runs. The runner's uid differs from the
+          # container's default PUID=1000, so make it world-readable.
+          git config --global user.email "ci@localhost"
+          git config --global user.name "CI"
+          git init -q --bare -b main /tmp/fixture/demo.git
+          work="$(mktemp -d)"
+          git -C "$work" init -q -b main
+          echo "# Demo Project" > "$work/README.md"
+          printf 'def main():\n    print("hello cgit")\n' > "$work/hello.py"
+          git -C "$work" add .
+          git -C "$work" commit -qm "Initial commit"
+          git -C "$work" push -q /tmp/fixture/demo.git HEAD
+          git -C /tmp/fixture/demo.git config cgit.desc "CI fixture repository"
+          chmod -R a+rX /tmp/fixture
+
           # Override the image's own HEALTHCHECK timing (interval=30s,
           # right for production, needlessly slow for CI) just for this
           # container — the check command itself is unchanged.
           docker run -d --name cgit-smoke -p 127.0.0.1:8080:8080 \
+            -v /tmp/fixture:/repos:ro \
             --health-interval=3s --health-start-period=2s --health-retries=3 \
             "$image"
-          # Poll a static asset (always 200 once lighttpd is up) rather
-          # than / — cgit legitimately returns 404 for / when scan-path
-          # finds zero repos, which is exactly this smoke-test container's
-          # situation (no /repos mounted). See Dockerfile's HEALTHCHECK
-          # comment for the same reasoning.
+
+          # 1. Static asset (always 200 once lighttpd is up) — the same
+          #    probe the image HEALTHCHECK uses.
           ok=0
           for i in $(seq 1 15); do
             if curl -fsS http://127.0.0.1:8080/cgit.css > /dev/null; then
@@ -91,17 +125,47 @@ jobs:
             exit 1
           fi
 
-          # Separately confirm cgit.cgi itself actually renders (not just
-          # that lighttpd is up) — status code isn't checked here on
-          # purpose (see above: 404 is valid for an empty repo list),
-          # just that the response body looks like real cgit output.
-          curl -sS http://127.0.0.1:8080/ > /tmp/smoke.html
-          grep -qi "cgit" /tmp/smoke.html || { echo "::error::response didn't look like cgit"; cat /tmp/smoke.html; exit 1; }
+          # 2. The custom stylesheet is actually served — guards the
+          #    lighttpd rewrite whitelist (a missed entry there would
+          #    route custom.css into cgit.cgi and 404).
+          curl -fsS http://127.0.0.1:8080/custom.css | grep -q "font-family" \
+            || { echo "::error::custom.css missing or wrong content"; docker logs cgit-smoke; exit 1; }
 
-          # Also confirm the image's own HEALTHCHECK (internal wget call)
-          # actually works, not just that curl can reach it from outside —
-          # a broken/missing healthcheck binary wouldn't be caught by the
-          # check above.
+          # 3. scan-path discovered the fixture repo, remove-suffix
+          #    stripped ".git" from its URL, and enable-git-config picked
+          #    up cgit.desc from the repo's own git config.
+          curl -fsS http://127.0.0.1:8080/ > /tmp/index.html
+          grep -q "href='/demo/'" /tmp/index.html \
+            || { echo "::error::index doesn't list the fixture repo (scan-path/remove-suffix broken?)"; cat /tmp/index.html; exit 1; }
+          grep -q "CI fixture repository" /tmp/index.html \
+            || { echo "::error::cgit.desc not picked up (enable-git-config broken?)"; cat /tmp/index.html; exit 1; }
+
+          # 4. The about-filter (md2html) actually rendered the README to
+          #    HTML — a missing python dep or moved filter path would show
+          #    up here, not at build time.
+          curl -fsS http://127.0.0.1:8080/demo/about/ | grep -qi "<h1" \
+            || { echo "::error::README not rendered to HTML (md2html broken?)"; exit 1; }
+
+          # 5. The source-filter (pygments) actually highlighted a blob.
+          curl -fsS http://127.0.0.1:8080/demo/tree/hello.py | grep -q 'class="highlight"' \
+            || { echo "::error::no pygments output in blob view (source-filter broken?)"; exit 1; }
+
+          # 6. HTTP clone works end-to-end — cgit serves git's dumb
+          #    protocol itself (info/refs and the pack list are generated
+          #    per-request, no update-server-info hook needed anywhere).
+          git clone -q http://127.0.0.1:8080/demo /tmp/cloned
+          test -f /tmp/cloned/hello.py \
+            || { echo "::error::clone succeeded but content is missing"; exit 1; }
+
+          # 7. mod_deflate compresses text output when the client asks.
+          curl -fsS -H "Accept-Encoding: gzip" -D /tmp/hdrs -o /dev/null \
+            http://127.0.0.1:8080/demo/about/
+          grep -qi "^content-encoding: gzip" /tmp/hdrs \
+            || { echo "::error::deflate not active (module missing/misconfigured?)"; cat /tmp/hdrs; exit 1; }
+
+          # 8. The image's own HEALTHCHECK (internal wget call) reports
+          #    healthy — a broken/missing healthcheck binary wouldn't be
+          #    caught by any of the curl checks above.
           healthy=0
           for i in $(seq 1 20); do
             status="$(docker inspect --format='{{.State.Health.Status}}' cgit-smoke)"

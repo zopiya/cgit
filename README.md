@@ -36,7 +36,9 @@ docker compose up -d --build
 Drop bare repositories (`myproject.git`) under whatever host path you bind
 to `/repos` in `docker-compose.yml` (edit that path first) —
 `cgitrc`'s `scan-path=/repos` auto-discovers them, no manual repo list to
-maintain.
+maintain. They show up without the `.git` suffix (`remove-suffix=1`), and
+per-repo metadata (description, owner, section, visibility) lives in each
+repo's own git config — see Configuration below.
 
 - `PUID`/`PGID` — uid/gid lighttpd runs as inside the container, so it can
   read repos owned by your NAS user. The entrypoint reuses an existing
@@ -64,33 +66,79 @@ the way the error log does, and pointing it at `/dev/stdout` directly
 doesn't work once lighttpd has dropped to a non-root PUID (see
 `config/lighttpd.conf` for the full explanation). View with
 `docker exec cgit tail -f /var/cache/cgit/access.log`.
+There's no rotation — at home-NAS traffic it grows slowly, and since
+lighttpd opens the log with `O_APPEND`, reclaiming space is just
+`docker exec cgit sh -c ': > /var/cache/cgit/access.log'` on the live
+container; no restart needed.
+
+The compose file also does some cheap hardening: it drops every Linux
+capability except the five the entrypoint's startup sequence needs
+(creating the PUID/PGID account, chowning the cache volume — the
+`su-exec` privilege drop afterwards is permanent), sets
+`no-new-privileges`, and puts the CGI upload spool on a `tmpfs`.
+`read_only: true` is deliberately not set: the runtime user creation
+writes `/etc/passwd` inside the container.
 
 ## Configuration
 
 - `config/cgitrc` — baked into the image at `/etc/cgitrc`. Override at
-  runtime by bind-mounting your own file over `/etc/cgitrc`.
+  runtime by bind-mounting your own file over `/etc/cgitrc`. Per-repo
+  settings come from each repo's own git config (`enable-git-config=1`),
+  not a central list — set them from anywhere you can run git against the
+  bare repo (e.g. over SSH to the NAS), no container restart involved:
+  ```sh
+  git -C /volume1/git-repos/myproject.git config cgit.desc "My project"
+  git -C /volume1/git-repos/myproject.git config gitweb.owner "zopiya"
+  git -C /volume1/git-repos/myproject.git config gitweb.category "infra"  # index section
+  git -C /volume1/git-repos/myproject.git config cgit.hide 1              # serve but hide from index
+  ```
+  (`gitweb.owner`/`category`/`description`/`homepage` map to cgit's
+  `repo.owner`/`section`/`desc`/`homepage`; any `cgit.*` key maps to the
+  matching `repo.*` setting — `cgit.defbranch`, `cgit.snapshots`,
+  `cgit.max-stats`, ... see `cgitrc(5)`.)
 - `config/lighttpd.conf` — CGI routing; shouldn't need changes for normal
   use. `clone-url` in `cgitrc` derives from the request's `Host` header
   rather than a hardcoded name, so `git clone` URLs shown in the UI are
   correct whether you're hitting the NAS by LAN IP, Tailscale IP, or (if
-  you later add one) a reverse-proxied domain.
-- `config/cgit.css` — cgit's own default stylesheet with only
-  `font-family`/`font-size`/`line-height` changed (modern system font
-  stacks instead of bare `sans-serif`/`monospace`, 14px instead of 10pt)
-  — nothing else touched. Regenerate by re-applying the same substitution
-  to a newer upstream `cgit.css` if `CGIT_VERSION` is ever bumped.
+  you later add one) a reverse-proxied domain. Text responses are
+  gzip-compressed by lighttpd (`mod_deflate`) — felt mostly off-LAN,
+  over Tailscale.
+- `config/custom.css` — local style preferences (modern system font
+  stacks instead of bare `sans-serif`/`monospace`, 14px instead of
+  10pt), layered *after* cgit's own default stylesheet, which is served
+  unmodified straight from the build (`css=` may be repeated; each
+  entry becomes its own `<link>`). Bumping `CGIT_VERSION` therefore
+  needs no stylesheet re-merge — edit this one small file for any
+  look-and-feel change.
 
 Enabled beyond the defaults: README rendering on each repo's "about" tab
 (`readme`/`about-filter`, Markdown → HTML via `py3-markdown`), syntax
 highlighting in the tree/blob view (`source-filter`, via `py3-pygments`),
 a per-repo commit-activity chart (`max-stats`), an owner column
-(`enable-index-owner`), and `section-from-path` (repos get grouped by
-their first path component under `scan-path` for free once/if they're
-ever organized into category subdirectories — flat `/repos/*.git` is
-unaffected). `module-link` cross-links submodule entries to their own
+(`enable-index-owner`), branches sorted by recent activity
+(`branch-sort=age`), a 512 KB cap on rendered blob size so a stray
+`package-lock.json` can't hang a browser tab (`max-blob-size`), several
+common README filename variants (`readme=:README.md`, `:readme.md`,
+`:README.markdown`, ..., first match wins), per-repo settings from each
+repo's own git config (`enable-git-config`, see above), `.git` suffixes
+stripped from repo URLs and names (`remove-suffix`), and
+`section-from-path` (repos get grouped by their first path component
+under `scan-path` for free once/if they're ever organized into category
+subdirectories — flat `/repos/*.git` is unaffected; a per-repo
+`gitweb.category` overrides it). `module-link` cross-links submodule entries to their own
 repo page here, but only resolves correctly if a submodule's checkout
 directory name matches its corresponding repo's name on this instance —
 see the comment above it in `config/cgitrc` for why.
+
+Cloning from this instance works out of the box: cgit serves git's dumb
+HTTP protocol itself — `info/refs` and the pack list are generated
+per-request from the live repo, so there's no `git update-server-info`
+hook to install and nothing to re-run after pushing. Two limitations of
+dumb HTTP worth knowing: no shallow or partial clones (`--depth`,
+`--filter`), and transfers are whole-pack with no negotiation —
+irrelevant at personal-repo sizes, worth knowing before mirroring
+something huge. Pushing over HTTP is not supported (cgit is browse +
+clone only); push over SSH to the NAS the usual way.
 
 Left off on purpose: gravatar/libravatar-based avatars — those need the
 container to fetch images from an external host per-request, which
@@ -110,15 +158,23 @@ option (auth filters, per-repo settings, etc).
    (~20-30 min vs under a minute) for no benefit here. If a future NAS
    needs it, add `docker/setup-qemu-action` back and set
    `platforms: linux/amd64,linux/arm64`.
-2. **Smoke tests** the built image before anything is pushed: runs it,
-   confirms `/cgit.css` (static, unaffected by repo count) responds,
-   checks `/`'s body actually looks like cgit's own output, and confirms
-   the image's own `HEALTHCHECK` reports `healthy`. A green `docker
-   build` doesn't guarantee a working container — this pipeline hit that
-   exact gap for real during development (see git log: a musl compat
-   flag silently dropped between two `make` invocations, then a
-   privilege-drop ordering bug in how lighttpd opens its log files) — so
-   nothing reaches the registry without having actually run first.
+2. **Smoke tests** the built image before anything is pushed — against a
+   real fixture repository created on the fly (a README, a Python file,
+   and a `cgit.desc` set via git config), so the whole runtime path is
+   exercised, not just "lighttpd answers": repo discovery and
+   `.git`-suffix stripping show up in the index, the `cgit.desc` proves
+   `enable-git-config` works, the about page proves the md2html filter
+   and its python deps work, a blob view proves the pygments
+   source-filter works, an actual `git clone` over HTTP proves the
+   clone endpoint works, `custom.css` being served proves the lighttpd
+   rewrite whitelist is intact, a `Content-Encoding: gzip` response
+   proves `mod_deflate` is live, and the image's own `HEALTHCHECK` must
+   report `healthy`. A green `docker build` doesn't guarantee a working
+   container — this pipeline hit that exact gap for real during
+   development (see git log: a musl compat flag silently dropped
+   between two `make` invocations, then a privilege-drop ordering bug
+   in how lighttpd opens its log files) — so nothing reaches the
+   registry without having actually run, and actually rendered, first.
 3. **Publishes** to `ghcr.io/zopiya/cgit` with multiple tags for
    different needs:
    - `latest` — floating, current `main`.
@@ -129,6 +185,15 @@ option (auth filters, per-repo settings, etc).
      Pin to one of these for a reproducible deployment instead of
      riding `latest`.
    - `<version>` — only on `v*` tag pushes (semver).
+
+The same pipeline also runs on a **weekly schedule** (Monday nights),
+rebuilding the identical sources so Alpine package security fixes
+(lighttpd, python3, ...) flow into `latest` even while this repo itself
+is quiet. GitHub disables scheduled runs after 60 days of repo
+inactivity — an occasional commit or manual `workflow_dispatch` re-arms
+them. Action versions are kept current by Dependabot
+(`.github/dependabot.yml`); image-level dependencies are deliberately
+hand-pinned (below) rather than auto-bumped.
 
 Pull on the NAS with:
 
@@ -173,6 +238,10 @@ In the `Dockerfile`:
   curl -fsSL https://www.kernel.org/pub/software/scm/git/sha256sums.asc \
     | grep "git-<version>.tar.xz"
   ```
+- **custom.css**: nothing to do on upgrade — it layers over upstream
+  `cgit.css` rather than modifying it. If code views ever fall back to a
+  default monospace font, diff the new upstream `cgit.css` for
+  `monospace` selectors and re-sync the list in `custom.css`.
 
 After bumping either, push to `main` — CI rebuilds, smoke tests, and
 publishes automatically; nothing to run by hand.
