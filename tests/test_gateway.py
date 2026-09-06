@@ -7,6 +7,7 @@ The Docker driver exercises the exact same client flows through real lighttpd.
 
 import base64
 from concurrent.futures import ThreadPoolExecutor
+import gzip
 import hashlib
 import io
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -422,6 +423,30 @@ class GatewayTests(unittest.TestCase):
         oid = hashlib.sha256(data).hexdigest()
         (self.lfs / f"group/demo.git/objects/{oid[:2]}/{oid[2:4]}/{oid}").unlink()
         self.assertEqual(self.request("/group/demo/plain/asset.bin")[0], 404)
+
+    def test_web_gzip_and_lfs_range_download(self):
+        if self.driver == "cgi":
+            self.skipTest("Compression is provided by lighttpd; use lighttpd or docker driver")
+        for path in ("/group/demo/", "/group/demo/about/", "/group/demo/log/", "/group/demo/tree/hello.py"):
+            status, headers, body = self.request(path, headers={"Accept-Encoding": "gzip"})
+            self.assertEqual(status, 200, path)
+            self.assertEqual(headers.get("Content-Encoding"), "gzip", path)
+            self.assertEqual(headers.get("Cache-Control"), "no-store", path)
+            self.assertIn(b"<div id='cgit'>", gzip.decompress(body), path)
+        data = b"synthetic binary download\x00" * 10000
+        _, path = self.put_object(data)
+        for path in (path, "/group/demo/plain/large.bin"):
+            if "/plain/" in path:
+                oid = hashlib.sha256(data).hexdigest()
+                (self.work / "large.bin").write_text(
+                    f"version https://git-lfs.github.com/spec/v1\noid sha256:{oid}\nsize {len(data)}\n")
+                run("git", "add", ".", cwd=self.work)
+                run("git", "commit", "-m", "Large pointer", cwd=self.work)
+                run("git", "push", str(self.bare), "HEAD", cwd=self.work)
+            status, headers, body = self.request(path, headers={"Accept-Encoding": "gzip", "Range": "bytes=100-999"})
+            self.assertEqual(status, 206, path)
+            self.assertIsNone(headers.get("Content-Encoding"), path)
+            self.assertEqual(body, data[100:1000], path)
 
     def test_cgit_browsing_filters_archives_and_dumb_http(self):
         if self.driver == "cgi" and not Path(self.cfg["cgit"]).exists():

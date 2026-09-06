@@ -57,3 +57,13 @@ python3 -m unittest discover -s tests -v
 - LFS 卡片正确处理 cgit source-filter 外层 pre/code，避免将整块信息按源码空白排版。
 
 测试使用临时合成数据与固定测试密码；没有访问或修改真实仓库。临时预览进程已停止。
+
+## CI 反馈后的 gzip 修复（2026-09-07）
+
+- [GitHub run 34066814640](https://github.com/zopiya/cgit/actions/runs/34066814640)：`c8aaac5` 的 Linux 镜像构建成功，但冒烟测试的 gzip 检查失败；后续容器集成检查与发布步骤被跳过。
+- 根因：全局 `server.stream-response-body=2` 使 HTML 提前发送；lighttpd `mod_deflate` 要求响应完整，因此跳过压缩。`no-store` 并不是禁止压缩的原因。
+- 修复：普通网页缓冲后压缩；Git RPC、LFS、raw/blob、snapshot 和 dumb HTTP 对象路径继续流式响应，上传请求也仍然流式处理。
+- 新增回归测试先在旧配置下复现 `Content-Encoding` 缺失，再验证摘要/README/log/tree 的 gzip 内容可解压、no-store 保留、LFS API 与 raw 路径的 Range 下载字节正确。
+- 修复后重新执行真实 lighttpd/cgit 集成：**22 项全部通过，无跳过**；独立 CGI 驱动为 20 项通过、2 项明确跳过 Web 服务专属检查。
+- `git diff --check`、ShellCheck 通过。修复后的 Linux 镜像与远程 CI 尚未重新运行，仍需发布验证。
+- 对 NAS 做了只读探测：`/infra/cgit/info/refs?service=git-receive-pack` 返回 `200 text/plain`，不是 Smart HTTP 推送 advertisement；该入口当前仍不支持 HTTP push。
