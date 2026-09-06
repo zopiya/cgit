@@ -21,9 +21,8 @@ virtual-root=/
 # Derived from the request itself rather than a fixed hostname, so the
 # clone command shown in the UI is correct whether you're hitting this by
 # LAN IP, Tailscale IP, or (if one's ever added later) a proxied domain.
-# Hardcoded to http:// though — if this ever sits behind a TLS-terminating
-# proxy, override with an explicit https://your.domain/$CGIT_REPO_URL here,
-# since cgit has no built-in way to detect the original request scheme.
+# configure.py replaces this default using CGIT_BASE_URL and optionally adds
+# CGIT_SSH_CLONE_URL before scan-path. Set CGIT_BASE_URL behind a TLS proxy.
 clone-url=http://$HTTP_HOST/$CGIT_REPO_URL
 
 cache-root=/var/cache/cgit
@@ -35,7 +34,9 @@ enable-commit-graph=1
 enable-log-filecount=1
 enable-log-linecount=1
 enable-blame=1
-enable-html-serving=1
+enable-html-serving=0
+enable-follow-links=1
+side-by-side-diffs=1
 
 # Branch listings by most recent commit first (default: by name) — on
 # repos with many branches the active ones surface to the top.
@@ -50,7 +51,7 @@ snapshots=tar.gz zip
 
 # Render each repo's README as its "about" tab, converted from Markdown to
 # HTML (fenced code blocks, tables, syntax-highlighted code — see
-# md2html's own source for the exact extensions it enables). The ":"
+# runtime/about_filter.py for the supported Markdown extensions). The ":"
 # prefix means "read from the tip of the default branch", not a
 # filesystem path, so this works for mirrored repos too. readme= may be
 # repeated; cgit uses the first filename that exists (case-sensitive, so
@@ -61,10 +62,10 @@ readme=:README.markdown
 readme=:readme.markdown
 readme=:README
 readme=:readme
-about-filter=/usr/local/lib/cgit/filters/html-converters/md2html
+about-filter=/usr/local/lib/cgit-personal/about_filter.py
 
 # Syntax-highlighted source in the tree/blob view.
-source-filter=/usr/local/lib/cgit/filters/syntax-highlighting.py
+source-filter=/usr/local/lib/cgit-personal/source_filter.py
 
 # Per-repo commit-activity chart (the "stats" tab). No extra flag needed —
 # unset means disabled, any of week/month/quarter/year enables it.
@@ -94,9 +95,9 @@ section-from-path=1
 remove-suffix=1
 
 # Read per-repo settings from each repo's own git config instead of
-# maintaining [repo.*] blocks here — metadata travels with the repo, and
-# can be set from anywhere you can push from, no SSH round trip to the
-# NAS. The keys gitweb.owner, gitweb.category, gitweb.description and
+# maintaining [repo.*] blocks here. Set these on the server's bare repo:
+# Git config is not transferred by normal push. The keys gitweb.owner,
+# gitweb.category, gitweb.description and
 # gitweb.homepage map to cgit's repo.owner/section/desc/homepage; any
 # key starting cgit.* maps to the corresponding repo.* setting. Examples
 # (run inside the bare repo):

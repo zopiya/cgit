@@ -42,3 +42,15 @@ div#cgit table.diff td,
 div#cgit table.ssdiff td {
 	font-size: 13px;
 }
+/* Personal file browsing: contain large media and preserve readable Markdown. */
+div#cgit .lfs-file { padding: 1.25em; line-height: 1.6; white-space: normal; overflow-wrap: anywhere; }
+div#cgit table.blob:has(.lfs-file) { width: 100%; table-layout: fixed; }
+div#cgit table.blob:has(.lfs-file) td.linenumbers { display: none; }
+div#cgit .lfs-file code { overflow-wrap: anywhere; }
+div#cgit .lfs-file img { display: block; max-width: min(100%, 960px); max-height: 70vh; object-fit: contain; }
+div#cgit .lfs-note { color: #666; font-size: 90%; }
+div#cgit .markdown-body { max-width: 1000px; line-height: 1.65; overflow-wrap: anywhere; }
+div#cgit .markdown-body img { max-width: 100%; height: auto; }
+div#cgit .markdown-body pre { overflow-x: auto; padding: 1em; background: #f6f6f6; }
+div#cgit .markdown-body table { border-collapse: collapse; }
+div#cgit .markdown-body th, div#cgit .markdown-body td { border: 1px solid #ddd; padding: .4em .75em; }

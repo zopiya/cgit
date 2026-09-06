@@ -2,8 +2,8 @@
 #
 # cgit — a fast web interface for git, written in C — built from source
 # against the exact Git release it's tested with, and served by lighttpd.
-# Fully self-contained at runtime: no network access, no external "git"
-# binary, no dependency on any particular domain, proxy, or VPN — plain
+# Fully self-contained at runtime: no outbound network access and
+# no dependency on any particular domain, proxy, or VPN — plain
 # HTTP on :8080. See README for how a domain/TLS layer can be added
 # optionally, on top, without this image changing.
 #
@@ -150,14 +150,13 @@ LABEL org.opencontainers.image.title="cgit" \
       org.opencontainers.image.version="${CGIT_VERSION}" \
       org.opencontainers.image.licenses="GPL-2.0-only"
 
-# python3/py3-pygments/py3-markdown: cgit's own bundled about-filter
-# (html-converters/md2html, for README rendering) and source-filter
-# (syntax-highlighting.py) are Python scripts that import the pygments/
-# markdown libraries directly rather than shelling out to a CLI tool —
-# both packages are needed at *runtime* (these filters run per-request,
-# not at build time).
+# Python runs the CGI gateway and filters. Markdown/Pygments render source;
+# Bleach sanitizes README HTML. Alpine's git-daemon subpackage includes
+# git-http-backend (no git daemon is started).
 RUN apk add --no-cache \
         lighttpd \
+        git \
+        git-daemon \
         su-exec \
         zlib \
         openssl \
@@ -166,10 +165,18 @@ RUN apk add --no-cache \
         python3 \
         py3-pygments \
         py3-markdown \
-    && mkdir -p /var/cache/cgit /repos
+        py3-bleach \
+    && mkdir -p /var/cache/cgit /repos /lfs /usr/local/libexec
 
 COPY --from=build /out/var/www/htdocs/cgit /var/www/htdocs/cgit
 COPY --from=build /out/usr/local/lib/cgit/filters /usr/local/lib/cgit/filters
+RUN mv /var/www/htdocs/cgit/cgit.cgi /usr/local/libexec/cgit.cgi \
+    && test -x /usr/libexec/git-core/git-http-backend
+
+COPY runtime/ /usr/local/lib/cgit-personal/
+RUN chmod +x /usr/local/lib/cgit-personal/*.py \
+    && ln -s /usr/local/lib/cgit-personal/gateway.py /var/www/htdocs/cgit/gateway.cgi \
+    && ln -s /usr/local/lib/cgit-personal/doctor.py /usr/local/bin/cgit-doctor
 
 COPY config/cgitrc /etc/cgitrc
 COPY config/lighttpd.conf /etc/lighttpd/lighttpd.conf
@@ -182,7 +189,7 @@ COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 8080
-VOLUME ["/repos", "/var/cache/cgit"]
+VOLUME ["/repos", "/lfs", "/var/cache/cgit"]
 
 # Checks /cgit.css (a static file lighttpd serves directly) rather than
 # / — cgit itself returns HTTP 404 for / whenever scan-path finds zero

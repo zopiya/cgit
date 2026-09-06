@@ -1,15 +1,24 @@
 services:
   cgit:
+    build: .
     image: ghcr.io/zopiya/cgit:latest
     container_name: cgit
     restart: unless-stopped
     environment:
-      PUID: "1000"
-      PGID: "1000"
-      TZ: "Asia/Shanghai"
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      TZ: "${TZ:-Asia/Shanghai}"
+      CGIT_BASE_URL: "${CGIT_BASE_URL:-}"
+      CGIT_AUTH_MODE: "${CGIT_AUTH_MODE:-public}"
+      CGIT_USERNAME: "${CGIT_USERNAME:-}"
+      CGIT_PASSWORD_FILE: "${CGIT_PASSWORD_FILE:-}"
+      CGIT_HTTP_PUSH: "${CGIT_HTTP_PUSH:-0}"
+      CGIT_LFS_MAX_SIZE: "${CGIT_LFS_MAX_SIZE:-10737418240}"
+      CGIT_SSH_CLONE_URL: "${CGIT_SSH_CLONE_URL:-}"
     volumes:
       - ./repos:/repos:ro
       - ./cache:/var/cache/cgit
+      - ./lfs:/lfs
     ports:
       - "8080:8080"
 

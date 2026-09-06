@@ -4,7 +4,7 @@ set -eu
 PUID="${PUID:-1000}"
 PGID="${PGID:-1000}"
 
-mkdir -p /var/cache/cgit /repos
+mkdir -p /var/cache/cgit /repos /lfs
 
 if [ "$(id -u)" = "0" ]; then
     # Reuse an existing group/user already sitting on this gid/uid (e.g. a
@@ -25,8 +25,14 @@ if [ "$(id -u)" = "0" ]; then
     fi
 
     chown -R "$PUID:$PGID" /var/cache/cgit
+    # Existing LFS objects are immutable. Do not recursively walk large stores.
+    chown "$PUID:$PGID" /lfs
 
+    su-exec "$PUID:$PGID" python3 /usr/local/lib/cgit-personal/configure.py
+    su-exec "$PUID:$PGID" lighttpd -tt -f /etc/lighttpd/lighttpd.conf
     exec su-exec "$PUID:$PGID" lighttpd -D -f /etc/lighttpd/lighttpd.conf
 fi
 
+python3 /usr/local/lib/cgit-personal/configure.py
+lighttpd -tt -f /etc/lighttpd/lighttpd.conf
 exec lighttpd -D -f /etc/lighttpd/lighttpd.conf

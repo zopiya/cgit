@@ -1,0 +1,16 @@
+# Opt-in personal account + HTTP push. Password is mounted as a secret.
+services:
+  cgit:
+    environment:
+      CGIT_USERNAME: "${CGIT_USERNAME:-owner}"
+      CGIT_PASSWORD_FILE: /run/secrets/cgit_password
+      CGIT_AUTH_MODE: "${CGIT_AUTH_MODE:-private}"
+      CGIT_HTTP_PUSH: "${CGIT_HTTP_PUSH:-1}"
+    volumes:
+      - ./repos:/repos:rw
+    secrets:
+      - cgit_password
+
+secrets:
+  cgit_password:
+    file: ./secrets/password

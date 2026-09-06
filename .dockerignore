@@ -2,3 +2,15 @@
 .github
 *.md
 docker-compose.yml
+docker-compose.*.yml
+.env
+secrets
+repos
+lfs
+cache
+backups
+__pycache__
+**/__pycache__
+.venv
+tests
+docs
