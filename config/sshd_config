@@ -12,7 +12,6 @@ PermitEmptyPasswords no
 PermitRootLogin no
 PubkeyAuthentication yes
 AuthenticationMethods publickey
-UsePAM no
 
 AllowUsers git
 PermitTTY no

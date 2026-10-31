@@ -45,6 +45,7 @@ services:
       - FOWNER
       - SETGID
       - SETUID
+      - SYS_CHROOT
     security_opt:
       - no-new-privileges:true
     tmpfs:

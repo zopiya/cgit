@@ -40,6 +40,7 @@ ENV = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"
 
 
 def run(*args, cwd=None, check=True, **kwargs):
+    kwargs.setdefault("timeout", 90)
     result = subprocess.run(args, cwd=cwd, env=ENV, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, **kwargs)
     if check and result.returncode:
@@ -147,6 +148,7 @@ class GatewayTests(unittest.TestCase):
             else:
                 raise AssertionError(run("docker", "logs", cls.container).stdout.decode())
             cls.baseline = json.loads(cls.settings.read_text())
+            cls.baseline_cgitrc = (cls.cache / "runtime/cgitrc").read_text()
         else:
             cls.baseline = dict(repos=str(cls.repos), lfs=str(cls.lfs), base_url="",
                                 auth_mode="public", username="owner", password_file=str(cls.password),
@@ -244,7 +246,7 @@ class GatewayTests(unittest.TestCase):
             self.cfg.update(repos=str(self.repos), lfs=str(self.lfs),
                             cgit_config=str(self.cache / "runtime/cgitrc"))
             cgitrc = self.cache / "runtime/cgitrc"
-            cgitrc.write_text(cgitrc.read_text().replace("/repos", str(self.repos)))
+            cgitrc.write_text(self.baseline_cgitrc.replace("/repos", str(self.repos)))
         self.save_config()
         self.bare = self.repos / "group/demo.git"
         self.bare.parent.mkdir(parents=True, exist_ok=True)

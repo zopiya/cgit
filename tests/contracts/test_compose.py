@@ -114,6 +114,7 @@ class ComposeTlsContract(unittest.TestCase):
             f"      PGID: {json.dumps(str(os.getgid()))}\n"
             "      TZ: UTC\n"
             "  edge:\n"
+            f"    user: {json.dumps(str(os.getuid()) + chr(58) + str(os.getgid()))}\n"
             "    ports: !override\n"
             f"      - {json.dumps(f'127.0.0.1:{cls.https_port}:{cls.https_port}')}\n"
             "    volumes: !override\n"
@@ -136,7 +137,7 @@ class ComposeTlsContract(unittest.TestCase):
     @classmethod
     def compose(cls, *args, check=True, timeout=90):
         command = [
-            "docker", "compose", "--project-directory", str(ROOT),
+            "docker", "compose", "--profile", "ssh", "--project-directory", str(ROOT),
             "--project-name", cls.project,
         ]
         for path in cls._compose_files():
@@ -209,7 +210,7 @@ class ComposeTlsContract(unittest.TestCase):
         raise AssertionError(f"HTTPS edge did not become ready: {last}")
 
     @classmethod
-    def _git(cls, *args, user=None, env=None):
+    def _git(cls, *args, user=None, env=None, cwd=None):
         command = ["git"]
         if user:
             command += ["-c", f"credential.helper={ACCESS_HELPERS[user]}"]
@@ -218,7 +219,7 @@ class ComposeTlsContract(unittest.TestCase):
             "-c", f"http.sslCAInfo={cls.ca}",
             *args,
         ]
-        return run(*command, env=env or ENV)
+        return run(*command, env=env or ENV, cwd=cwd)
 
     @classmethod
     def _published_ports(cls, service):
@@ -229,9 +230,13 @@ class ComposeTlsContract(unittest.TestCase):
         return json.loads(value)
 
     def test_https_clone_push_headers_and_restart(self):
-        status, headers, _ = self.request("/")
-        self.assertEqual(status, 401)
-        self.assertTrue(headers["www-authenticate"].startswith("Basic "))
+        status, headers, body = self.request("/")
+        self.assertEqual(status, 200)
+        self.assertIn(b"href='/public/'", body)
+        self.assertNotIn(b"href='/group/demo/'", body)
+        denied, challenge, _ = self.request("/group/demo/")
+        self.assertEqual(denied, 401)
+        self.assertTrue(challenge["www-authenticate"].startswith("Basic "))
         self.assertEqual(headers["strict-transport-security"], "max-age=31536000; includeSubDomains")
         self.assertEqual(headers["x-content-type-options"], "nosniff")
 

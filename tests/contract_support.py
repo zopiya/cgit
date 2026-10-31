@@ -389,6 +389,7 @@ class Service:
             "-e", "CGIT_HTTP_PUSH=1", "-e", "CGIT_SSH_PUSH=1",
             "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "DAC_OVERRIDE",
             "--cap-add", "FOWNER", "--cap-add", "SETGID", "--cap-add", "SETUID",
+            "--cap-add", "SYS_CHROOT",
             "--security-opt", "no-new-privileges:true",
             "--tmpfs", "/run", "--tmpfs", "/tmp",
             "-v", f"{self.repos}:/repos", "-v", f"{self.access_root}:/access",
