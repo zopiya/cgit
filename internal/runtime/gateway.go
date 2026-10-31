@@ -291,6 +291,9 @@ func (g *gateway) upload(name, oid string, q url.Values) error {
 	if e = os.MkdirAll(filepath.Dir(dst), 0755); e != nil {
 		return e
 	}
+	if e = g.c.checkUploadSpace(filepath.Dir(dst), size); e != nil {
+		return e
+	}
 	f, e := os.CreateTemp(filepath.Dir(dst), ".upload-")
 	if e != nil {
 		return e
@@ -516,6 +519,7 @@ func (g *gateway) smart(name, action, method string, q url.Values) error {
 	env = setEnv(env, "PATH_INFO", "/"+name+"/"+action)
 	env = append(env, "GIT_PROJECT_ROOT="+g.c.Repos, "GIT_HTTP_EXPORT_ALL=1", "GIT_PROTOCOL="+os.Getenv("HTTP_GIT_PROTOCOL"))
 	g.inheritLocks()
+	env = g.c.transportEnv(env)
 	return execProgram("git", []string{"-c", "safe.directory=" + repo, "-c", fmt.Sprintf("http.receivepack=%t", g.c.HTTPPush), "http-backend"}, env)
 }
 func (g *gateway) inheritLocks() {
@@ -620,23 +624,37 @@ func (g *gateway) web(path string, q url.Values) error {
 			names = append(names, n)
 		}
 		sort.Slice(names, func(i, j int) bool { return len(names[i]) > len(names[j]) })
+		selected := false
 		for _, n := range names {
+			matched := false
 			for _, alias := range []string{n, n + ".git"} {
 				if target == alias || strings.HasPrefix(target, alias+"/") {
 					if e := g.access.Require(n, g.user, "R"); e != nil {
 						return e
 					}
+					matched = true
 				}
+			}
+			if matched {
+				// A repository page only needs this repository in cgit's scan.
+				// The root index still checks every repository for this identity.
+				names = []string{n}
+				selected = true
+				break
 			}
 		}
 		visible := []string{}
 		for _, n := range names {
-			ok, e := g.access.Allowed(n, g.user, "R")
-			if e != nil {
-				return e
+			ok := selected // Require already checked this exact target in this request.
+			if !selected {
+				var e error
+				ok, e = g.access.Allowed(n, g.user, "R")
+				if e != nil {
+					return e
+				}
 			}
 			if ok {
-				_, _, e = repository(g.c, n, true)
+				_, _, e := repository(g.c, n, true)
 				if e == nil {
 					visible = append(visible, n+".git")
 				} else {

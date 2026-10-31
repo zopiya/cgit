@@ -71,12 +71,17 @@ def main():
             print("OK: base" + "".join(" + " + name for name in extras))
         # Separate project/port bindings must be possible without editing YAML.
         env.update(CGIT_HTTP_BIND="127.0.0.1", CGIT_HTTP_PORT="18080",
-                   CGIT_SSH_BIND="127.0.0.1", CGIT_SSH_PORT="12222")
+                   CGIT_SSH_BIND="127.0.0.1", CGIT_SSH_PORT="12222",
+                   CGIT_LFS_MAX_SIZE="107374182400", CGIT_HTTP_MAX_REQUEST_SIZE="214748364800",
+                   CGIT_GIT_PACK_THREADS="2", CGIT_GIT_PACK_WINDOW_MEMORY="67108864")
         command = ["docker", "compose", "--env-file", str(envfile), "--project-name", "second-instance",
                    "--profile", "ssh", "-f", str(ROOT / "docker-compose.yml"),
                    "-f", str(ROOT / "docker-compose.access.yml"), "config", "--format", "json"]
         result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=30, check=True)
         services = json.loads(result.stdout)["services"]
+        for name in ("cgit", "ssh"):
+            for key in ("CGIT_LFS_MAX_SIZE", "CGIT_HTTP_MAX_REQUEST_SIZE", "CGIT_GIT_PACK_THREADS", "CGIT_GIT_PACK_WINDOW_MEMORY"):
+                assert str(services[name]["environment"][key]) == env[key], (name, key)
         for name, port in (("cgit", "18080"), ("ssh", "12222")):
             binding = services[name]["ports"][0]
             assert binding["host_ip"] == "127.0.0.1" and str(binding["published"]) == port, name

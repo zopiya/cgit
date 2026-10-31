@@ -69,6 +69,10 @@ func Configure(args []string) error {
 	if e != nil || c.MaxSize < 1 || c.MaxSize > 1<<40 {
 		return fmt.Errorf("invalid CGIT_LFS_MAX_SIZE")
 	}
+	limits, e := configurePerformance(&c)
+	if e != nil {
+		return e
+	}
 	ssh := os.Getenv("CGIT_SSH_CLONE_URL")
 	if strings.IndexFunc(ssh, unicode.IsSpace) >= 0 || (ssh != "" && !strings.Contains(ssh, "$CGIT_REPO_URL")) {
 		return fmt.Errorf("invalid SSH clone URL")
@@ -175,11 +179,7 @@ func Configure(args []string) error {
 	if e = atomicWrite(c.CgitConfig, []byte("cache-size=0\n"+header+"remove-suffix=1\nenable-git-config=1\nscan-hidden-path=0\nclone-url="+clone+"\n"+src.String()), 0644); e != nil {
 		return e
 	}
-	limit := (c.MaxSize + 1023) / 1024
-	if limit < 1024 {
-		limit = 1024
-	}
-	if e = atomicWrite(filepath.Join(dir, "limits.conf"), []byte(fmt.Sprintf("server.max-request-size = %d\n", limit)), 0644); e != nil {
+	if e = atomicWrite(filepath.Join(dir, "limits.conf"), []byte(limits), 0644); e != nil {
 		return e
 	}
 	return atomicWrite(filepath.Join(dir, "settings.json"), append(jsonBytes(c), '\n'), 0644)

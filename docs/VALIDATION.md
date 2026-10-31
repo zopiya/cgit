@@ -4,6 +4,16 @@
 
 本文保留可追溯结果和当前限制，不把阶段测试流水当作操作指南。每次运行仅证明其对应源码/配置，后续修改要重新验证。
 
+## 性能与容量增量：推送前本地基线
+
+本轮新增独立 HTTP 请求大小、空闲超时、连接数、HTTP/SSH Git pack 参数和 LFS 上传空间准入；access 单库页面只查询目标策略，首页仍检查完整可见列表。用法与限制见 [性能与容量](PERFORMANCE.md)。
+
+最终 native 回归 `artifacts/performance-native-final.json`：43 项中 39 passed，0 failure/error，4 明确跳过（Compose 两项、两镜像无 Python 库存、Linux maintenance 恢复），complete:false。包含新的空间不足 507/不发布临时对象、单库策略隔离及既有身份/撤权/Web/Git/LFS/SSH 契约。Go race 和真实 restic 内部回归执行通过，Linux/amd64 交叉编译、vet、脚本与静态检查通过；这些不是当前 Linux 容器运行证据。
+
+32 个业务仓库的独立 native 顺序基准中，单库 tree 授权查询 33 → 1、中位耗时 1807.748 → 257.078 ms；旧 query 同样减至 1 次，首页查询 32 次不变。报告与局部证据边界见 PERFORMANCE.md。
+
+本轮未修改真实仓库或部署环境，未安装 Docker。下方历史 Actions 不覆盖本轮新代码，本轮 Linux 结果另行记录。没有实测 100 GiB 上传、满盘并发、网络吞吐/资源上限或文件系统配额，不能由可配置数值推导容量保证。
+
 ## 最近一次完整 Linux 验收
 
 本轮文档与 Compose 整理提交 `3322a51f1ce0219a9c76dcb7a24cc762e8231144` 已在 [Actions 41208433154](https://github.com/zopiya/cgit/actions/runs/41208433154) 通过（2026-10-31）。协议基线与 Linux 容器两项 job 成功，发布 job 跳过，没有发布或部署。

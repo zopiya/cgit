@@ -17,6 +17,20 @@ class AccessProtocol(unittest.TestCase):
         self.service = Service(access=True)
         self.addCleanup(self.service.close)
 
+    def test_repository_page_does_not_query_unrelated_repository_policy(self):
+        service = self.service
+        compiled = service.repos / "public.git/gl-conf"
+        original = compiled.read_bytes()
+        compiled.write_bytes(original + b"\n# uncommitted policy change\n")
+        # The direct page still checks its own policy; the index must check all.
+        self.assertEqual(service.request("/group/demo/tree/", user="reader")[0], 200)
+        self.assertEqual(service.request("/?r=group/demo&p=tree", user="reader")[0], 200)
+        self.assertEqual(service.request("/group/demo/tree/")[0], 401)
+        self.assertEqual(service.request("/public/tree/", user="reader")[0], 503)
+        self.assertEqual(service.request("/", user="reader")[0], 503)
+        compiled.write_bytes(original)
+        self.assertEqual(service.request("/", user="reader")[0], 200)
+
     def test_identity_matrix_across_web_git_lfs_and_update_hook(self):
         service = self.service
         private_git = "/group/demo/info/refs?service=git-upload-pack"

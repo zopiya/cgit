@@ -42,20 +42,24 @@ type AccessOptions struct {
 	Gitolite string `json:"gitolite"`
 }
 type Config struct {
-	WriteRoot    string         `json:"write_root,omitempty"`
-	Repos        string         `json:"repos"`
-	LFS          string         `json:"lfs"`
-	BaseURL      string         `json:"base_url"`
-	AuthMode     string         `json:"auth_mode"`
-	Username     string         `json:"username"`
-	PasswordFile string         `json:"password_file"`
-	HTTPPush     bool           `json:"http_push"`
-	SSHPush      bool           `json:"ssh_push"`
-	MaxSize      int64          `json:"max_size"`
-	Cgit         string         `json:"cgit"`
-	CgitConfig   string         `json:"cgit_config"`
-	Policy       Policy         `json:"repository_policy"`
-	Access       *AccessOptions `json:"access,omitempty"`
+	MaxRequestSize   int64          `json:"max_request_size,omitempty"`
+	LFSMinFreeBytes  int64          `json:"lfs_min_free_bytes,omitempty"`
+	PackThreads      int            `json:"pack_threads,omitempty"`
+	PackWindowMemory int64          `json:"pack_window_memory,omitempty"`
+	WriteRoot        string         `json:"write_root,omitempty"`
+	Repos            string         `json:"repos"`
+	LFS              string         `json:"lfs"`
+	BaseURL          string         `json:"base_url"`
+	AuthMode         string         `json:"auth_mode"`
+	Username         string         `json:"username"`
+	PasswordFile     string         `json:"password_file"`
+	HTTPPush         bool           `json:"http_push"`
+	SSHPush          bool           `json:"ssh_push"`
+	MaxSize          int64          `json:"max_size"`
+	Cgit             string         `json:"cgit"`
+	CgitConfig       string         `json:"cgit_config"`
+	Policy           Policy         `json:"repository_policy"`
+	Access           *AccessOptions `json:"access,omitempty"`
 }
 
 func envDefault(k, v string) string {

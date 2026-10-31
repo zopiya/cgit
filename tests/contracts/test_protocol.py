@@ -25,6 +25,22 @@ class PublicProtocol(unittest.TestCase):
         self.assertEqual(status, 200, body)
         return oid, path
 
+    def test_lfs_free_space_admission_rejects_without_publishing(self):
+        service = self.service
+        settings = json.loads(service.settings.read_text())
+        settings["lfs_min_free_bytes"] = 1 << 50
+        service.settings.write_text(json.dumps(settings))
+        data = b"storage admission fixture"
+        oid = hashlib.sha256(data).hexdigest()
+        path = f"/group/demo.git/info/lfs/objects/{oid}?size={len(data)}"
+        status, _, _ = service.request(path, data, "PUT", auth=True)
+        self.assertEqual(status, 507)
+        self.assertFalse(list(service.lfs.rglob(oid)))
+        self.assertFalse(list(service.lfs.rglob(".upload-*")))
+        settings["lfs_min_free_bytes"] = 0
+        service.settings.write_text(json.dumps(settings))
+        self.upload(data)
+
     def test_smart_git_clone_fetch_and_authenticated_push(self):
         s = self.service
         status, headers, body = s.request("/group/demo/info/refs?service=git-upload-pack")

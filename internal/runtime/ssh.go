@@ -81,6 +81,7 @@ func SSH(args []string) error {
 	if p := os.Getenv("GIT_PROTOCOL"); contains([]string{"version=0", "version=1", "version=2"}, p) {
 		env = append(env, "GIT_PROTOCOL="+p)
 	}
+	env = c.transportEnv(env)
 	g := &gateway{access: a}
 	g.inheritLocks()
 	return execProgram(action, []string{repo}, env)

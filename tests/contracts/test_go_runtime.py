@@ -19,7 +19,8 @@ class GoRuntimeContract(unittest.TestCase):
         self.assertNotIn("--- SKIP:", output, "Required Go regressions must not hide skipped recovery tests")
         for name in ("TestTokenScopesAndKeyLifecycle", "TestTokenExpirationAndFutureIssued",
                      "TestCredentialHash", "TestSafePaths", "TestWriteFenceWaitsAndFailurePolicy",
-                     "TestSyncRealLFSAndCorruptRepair", "TestSyncRejectsConfigSymlinkAndRewrite"):
+                     "TestSyncRealLFSAndCorruptRepair", "TestSyncRejectsConfigSymlinkAndRewrite", "TestPerformanceLimitsAndTransport",
+                     "TestUploadStorageAdmission", "TestConfiguredLimitsFile"):
             self.assertIn("--- PASS: " + name, output)
         run("go", "test", "./internal/runtime", "-run=^$", "-fuzz=FuzzSafePath",
             "-fuzztime=2s", "-parallel=2", cwd=ROOT)

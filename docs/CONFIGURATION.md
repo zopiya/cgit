@@ -34,7 +34,13 @@
 | `CGIT_USERNAME` | 空 | 单账号模式的身份名 |
 | `CGIT_PASSWORD_FILE` | 空 | 容器内密码文件路径；write 文件固定为 `/run/secrets/cgit_password` |
 | `CGIT_HTTP_PUSH` | `0` | Git HTTP push 总开关；另需认证/授权和可写卷 |
-| `CGIT_LFS_MAX_SIZE` | `10737418240` | 单对象上限 10 GiB，也影响请求体限制；Git push 亦受入口限制 |
+| `CGIT_LFS_MAX_SIZE` | `10737418240` | 单个 LFS 对象上限 10 GiB；范围 1 字节–1 TiB |
+| `CGIT_HTTP_MAX_REQUEST_SIZE` | 随 LFS 上限，至少 1 MiB | HTTP 请求上限，必须不小于 LFS 上限；最大 1 TiB，按 KiB 向上取整 |
+| `CGIT_HTTP_IDLE_TIMEOUT` | `300` | 读写空闲秒数，1–86400；不是总传输时长 |
+| `CGIT_HTTP_MAX_CONNECTIONS` | `1024` | lighttpd 连接上限，16–65535；不是吞吐保证或进程/内存硬上限 |
+| `CGIT_LFS_MIN_FREE_BYTES` | `0` | 上传前磁盘空间准入余量，0 关闭；不是并发预留或配额 |
+| `CGIT_GIT_PACK_THREADS` | `0` | 0 保留 Git/仓库默认；1–256 显式指定 HTTP/SSH 打包线程 |
+| `CGIT_GIT_PACK_WINDOW_MEMORY` | `0` | 0 保留 Git/仓库默认；正值设置每个打包线程的 windowMemory，字节 |
 | `CGIT_SSH_CLONE_URL` | 空 | 网页额外展示的 SSH URL 模板；必须含字面量 `$CGIT_REPO_URL` |
 | `CGIT_SSH_BIND` | `0.0.0.0` | access SSH 服务的宿主绑定地址 |
 | `CGIT_SSH_PORT` | `2222` | 宿主 SSH 端口；容器内固定 2222 |
@@ -51,6 +57,8 @@ CGIT_SSH_CLONE_URL='ssh://git@git.example.com:2222/$CGIT_REPO_URL.git'
 ```
 
 `.env` 单引号保留 `$CGIT_REPO_URL`，由 cgit 展开。该变量仅影响网页显示，不会创建 SSH 服务或改变客户端网络地址。
+
+容量示例、性能默认行为及测试范围见 [性能与容量](PERFORMANCE.md)。
 
 ## 数据目录
 

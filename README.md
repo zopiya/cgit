@@ -41,7 +41,8 @@ git clone http://主机地址:8080/demo
 - [使用指南](docs/USAGE.md)：建库、推送、GitHub 副本、LFS 和迁移。
 - [SSH 与人员权限](docs/ACCESS.md)：首次初始化、公钥、授权、登录与撤销。
 - [维护与备份](docs/OPERATIONS.md)：检查、定时任务、同步、加密备份和恢复。
+- [性能与容量](docs/PERFORMANCE.md)：默认优化、大文件限制、资源参数和测量。
 - [开发与验证](docs/DEVELOPMENT.md)：Go 构建、测试、CI 和实现入口。
 - [验收与已知限制](docs/VALIDATION.md)：可追溯测试结果和部署前待验事项。
 
-当前版本已通过 [Linux Actions](https://github.com/zopiya/cgit/actions/runs/41208433154)：41 项完整容器测试无跳过，9 组 Compose 配置及自定义端口检查通过，测试提交 `3322a51`。自动验收不代表真实 NAS/VPS 部署完成，详细范围见验收记录。
+上一轮文档与 Compose 整理版本已通过 [Linux Actions](https://github.com/zopiya/cgit/actions/runs/41208433154)：41 项完整容器测试无跳过，9 组 Compose 配置及自定义端口检查通过，测试提交 `3322a51`。自动验收不代表真实 NAS/VPS 部署完成，详细范围见验收记录。
