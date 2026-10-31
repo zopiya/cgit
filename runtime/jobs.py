@@ -653,8 +653,9 @@ def verify_restored_tree(destination, timeout, deadline):
         "http_push": False,
         "ssh_push": False,
     }
-    with tempfile.TemporaryDirectory(prefix="cgit-restore-check-",
-                                     dir=destination.parent) as temporary:
+    # A restore target is often a volume directly under /. Its parent need
+    # not be writable by the unprivileged maintenance user.
+    with tempfile.TemporaryDirectory(prefix="cgit-restore-check-") as temporary:
         runtime_config = Path(temporary) / "settings.json"
         runtime_config.write_text(json.dumps(settings))
         remaining = max(1, min(timeout, int(deadline - time.monotonic())))
