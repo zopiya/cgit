@@ -29,6 +29,12 @@ docker exec --user <PUID>:<PGID> cgit cgit-doctor --git --lfs
 
 保留现有大文件上限与读写空闲超时；请求体上限同时影响 Git push。若出现失败，先检查客户端、入口代理、lighttpd 和磁盘容量，再根据具体文件与带宽调整。访问日志有轮转，Docker stderr 日志是否轮转还需核对宿主机设置。
 
+## access 网页登录入口
+
+access 模式生成的 cgit 页面包含“登录 / Sign in”链接。链接访问顶层 `/_login`：匿名请求收到 Basic 认证挑战，有效的 HTTP 身份收到固定指向 `/` 的 303 跳转；LFS Bearer 凭据不能用于网页登录。借助顶层挑战建立根目录的 Basic 认证范围，避免先知道某个私有仓库地址才能登录。
+
+这沿用浏览器 Basic 弹窗，没有新增 cookie 会话、注册、修改密码或退出登录功能；浏览器对凭据缓存和切换账号的行为仍需浏览器层验收。SSH 公钥与 HTTP 凭据关联同一个身份，但不能互相替代。
+
 ## access、SSH 与 maintenance 候选入口
 
 以下入口已在隔离 Linux CI 验证；真实部署仍需按进度记录中的人工项验收：
@@ -122,3 +128,21 @@ docker compose -f docker-compose.yml -f docker-compose.access.yml \
 4. 出现问题优先停止写入、检查失败层，再切回旧镜像与兼容配置。镜像回退不会撤销数据写入；需要回退数据时，从一致性备份单独恢复。
 
 当前没有自动数据迁移或 LFS GC，维护命令不会主动删除对象。
+
+## 三种部署与本轮审计边界
+
+当前工作区问题、修复证据及试点条件见 [审计记录](AUDIT-2026-10-31.md)。两个独立实例使用不同项目目录中的 repos、lfs、cache、secrets 和 SSH 主机密钥；同一宿主还需覆盖固定 container_name 与发布端口。不要用同一个私有数据目录同时启动公网实例。
+
+- 个人内网匿名读取：基础 docker-compose.yml；写入由受控宿主入口负责，不需要 access 身份文件。
+- 独立公开发布：基础 + docker-compose.public.yml，设置 CGIT_DOMAIN/CGIT_ACME_EMAIL；仅放公开副本，不必叠 access。
+- 可选协作：基础 + access，按需启用 ssh/maintenance profile；不要再叠 write 覆盖文件。
+
+人员与公钥入口：access/.gitolite/conf/gitolite.conf、access/keydir 和管理员 identities JSON，凭据哈希由 `runtime/access.py hash-secret --secret-file <临时凭据文件>` 生成；`runtime/access.py apply --directory <access绝对路径> --repos <repos绝对路径> --identities <身份文件> --gitolite <gitolite绝对路径>` 编译并发布快照/authorized_keys。owner 标记不替代 Gitolite R/RW 规则。身份禁用、公钥撤销需重新 apply，不能只编辑快照。初始化与失败重试应先在合成环境演练，不在运行中的数据目录试错。
+
+新库由管理员 `git init --bare --initial-branch=main <repos/name.git>` 创建；access 模式还必须更新 Gitolite 策略并 apply。仓库重命名必须一并迁移对应 lfs/<逻辑仓库名>，重新应用策略并校验旧/新 URL；目前没有原子改名 CLI。
+
+任务配置入口为 jobs/jobs.json（从根目录 jobs.example.json 复制）；`runtime/jobs.py --help` 列出 validate/crontab/status/run/restore 等实际命令。archive 仅保存 repos/lfs，不能代替完整服务恢复。restic 默认数据为 repos/lfs/access；宿主秘密、源配置、SSH 主机密钥是否覆盖取决于显式 paths，必须核对，而不是假设默认已保存。恢复到独立空目录后再做完整 Git/LFS/权限与客户端检查，不覆盖运行实例。
+
+当前 restore 验收要求 access 完整快照，简单无 access 部署尚无对应验收模式。普通账号 HTTP 写入及宿主 SSH 不遵守 access 写锁；这类实例做 archive/restic 时必须先停写。access 策略 apply 的在途写入排空也尚未闭合，维护前应停写。失败后的 maintenance 标记需确认没有存活任务/写入、核对策略和备份完整性后处理，不要自动删除标记恢复服务。
+
+备份目的地与原始数据同盘只能防部分误操作；独立故障域、保留周期及离线恢复密码需由实际部署配置落实。本轮没有替用户建立异地备份或保管恢复密钥。

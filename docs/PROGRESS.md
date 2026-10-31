@@ -144,3 +144,12 @@
 最终复验：[Actions 41183772500](https://github.com/zopiya/cgit/actions/runs/41183772500)（`4590d54`）再次完整通过，89 项测试无跳过，包含新增非空 LFS 指针/对象和恢复字节比对；自动安全门禁通过。
 
 仍待完成：Supercronic 实际定时与重启补偿、跨容器写栅栏/故障恢复演练、浏览器恶意内容与资源压力测试、独立保管恢复密钥、真实公网 DNS/ACME、宿主网络/容量/漏洞扫描和升级回滚。CI 合成环境通过不代替这些验收；尚未合并 main、发布镜像或部署。
+
+## access 登录按钮（本地增量，未推送）
+
+新增 access 页面登录链接及顶层 `/_login` Basic 挑战入口，有效 HTTP 身份固定跳转首页，不接受 LFS token 登录。配置回归 11 项、CGI 登录挑战/固定跳转/错误凭据/方法限制测试，以及真实 native cgit/lighttpd/Gitolite 的 ACL 黑盒契约通过；compileall 与 diff 检查通过。没有引入 cookie 会话或退出登录功能，尚未验证真实浏览器弹窗/凭据缓存和本次变更的 Linux Actions。此前 89 项 Linux 绿色只对应历史提交，不替代此次增量验证。
+
+
+## 2026-10-31 当前工作区审计增量
+
+详见 [审计记录](AUDIT-2026-10-31.md)。修复 sync-in 父级符号链接、同长度损坏对象复用、真实 LFS JSON envelope 和 no-checkout 下 .lfsconfig 检查失效。真实客户端回归在临时 HEAD 副本上复现失败，修复后通过。最终 native：94 项，91 通过、0 failure/error、3 跳过；报告 artifacts/audit-native-final.json，complete:false。跳过两项 Docker Compose 和一项 Linux maintenance 真实 restic。登录入口服务端/native 验证通过，浏览器 host 不可用，未验证弹窗与凭据缓存。当前无 Docker/restic，未执行本轮 Linux CI/镜像漏洞扫描，未提交/推送/部署。写栅栏、apply 并发、角色运行配置与无 access 恢复仍未闭合，不能宣称全面审计验收完成。

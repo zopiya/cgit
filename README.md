@@ -6,11 +6,9 @@
 
 容器内的 Web 服务器是 **lighttpd，不是 Nginx**。请求依次经过 lighttpd、Python CGI 网关，再交给 cgit 页面、Git HTTP 后端或 LFS 文件接口。NAS/公网入口可以接已有反向代理，但不是本项目必须部署的另一项服务。
 
-工作区已实现候选的多用户 Gitolite 授权、容器 SSH、SSH→HTTPS LFS 认证、Caddy 公网入口，以及独立 maintenance 任务/恢复入口，设计和剩余验收见 [完整规划](docs/PLAN.md) 与 [实施记录](docs/PROGRESS.md)。这些新增路径尚未在 Linux Compose 上验收，也没有部署到 NAS/VPS；默认单镜像说明仍可直接使用。
+同一套代码支持个人内网匿名浏览、独立公开发布实例，以及可选 Gitolite access 协作。基础浏览不需要 access；项目自带 SSH 当前依赖 access，简单部署可使用受控宿主 SSH。公网实例只能挂载明确公开的数据，不能挂载私有库后仅靠隐藏或 ACL 保密。
 
-安全要求与发布前验收见 [安全设计](docs/SECURITY-DESIGN.md)，目前是规划，不代表已完成安全加固或部署验证。
-
-后续开发路线已确定为 [Python 验证 → Go 全量迁移，配套 GitHub Actions 测试](docs/RUNTIME-MIGRATION-AND-CI.md)。当前运行代码仍是 Python。
+当前工作区审计和未闭合风险见 [审计记录](docs/AUDIT-2026-10-31.md)，操作入口见 [维护说明](docs/OPERATIONS.md)。历史 Linux CI 与当前本地结果必须分开；当前尚未部署 NAS/VPS。本轮先审稳 Python 实现，Go 迁移文档保留为后续规划。
 
 ## 开始使用
 
@@ -36,9 +34,9 @@ Smart HTTP 自动处理 clone/fetch；旧 dumb HTTP 的读取端点仍然可用�
 
 ## 默认个人账号与写入
 
-没有团队角色或仓库 ACL：**一个账号管理这套服务的全部仓库**。
+单账号 public/private 模式：**一个账号管理这套服务的全部仓库**；逐仓库 ACL 属于可选 access 模式。
 
-需要公开/私有混合仓库、少量协作者和容器 SSH 时，使用 `docker-compose.access.yml`；该模式以 Gitolite 的 `gitolite.conf + keydir` 为权威，身份与策略应用入口是 `runtime/access.py`。它已通过本地真实 native 黑盒测试，但 Linux Compose、Caddy TLS、真实 restic 和部署验收仍未完成，不能把当前工作区文件当成已上线服务。
+需要公开/私有混合仓库、少量协作者和容器 SSH 时，使用 `docker-compose.access.yml`；该模式以 Gitolite 的 `gitolite.conf + keydir` 为权威，身份与策略应用入口是 `runtime/access.py`。历史 Linux 结果见 PROGRESS；当前工作区的验证范围和限制以审计记录为准。
 
 | 模式 | 浏览、克隆、LFS 下载 | LFS 上传 | Git HTTP push |
 |---|---|---|---|
@@ -78,7 +76,7 @@ git init --bare --initial-branch=main repos/new-project.git
 | `PUID` / `PGID` | `1000` / `1000` | 运行用户；不会自动递归 chown Git 仓库和整个 LFS 对象库 |
 | `TZ` | `Asia/Shanghai`（Compose） | 时区 |
 | `CGIT_BASE_URL` | 空 | 外部 HTTP(S) origin，如 `https://git.example.com`；不支持子路径部署 |
-| `CGIT_AUTH_MODE` | `public` | `public` 或 `private` |
+| `CGIT_AUTH_MODE` | `public` | `public`、`private` 或可选 `access` |
 | `CGIT_ACCESS_ROOT` | 空 | `access` 模式下的 `/access` 策略根目录 |
 | `CGIT_GITOLITE` | 空 | `access` 模式下容器内 Gitolite 可执行文件 |
 | `CGIT_USERNAME` | 空 | 个人账号名，与密码文件一起配置 |

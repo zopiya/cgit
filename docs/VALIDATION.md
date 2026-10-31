@@ -136,3 +136,8 @@ python3 -m unittest discover -s tests -v
 - 修复后重新执行真实 lighttpd/cgit 集成：**22 项全部通过，无跳过**；独立 CGI 驱动为 20 项通过、2 项明确跳过 Web 服务专属检查。
 - `git diff --check`、ShellCheck 通过。修复后的 Linux 镜像与远程 CI 尚未重新运行，仍需发布验证。
 - 对 NAS 做了只读探测：`/infra/cgit/info/refs?service=git-receive-pack` 返回 `200 text/plain`，不是 Smart HTTP 推送 advertisement；该入口当前仍不支持 HTTP push。
+
+
+## 2026-10-31 当前工作区审计增量
+
+详见 [审计记录](AUDIT-2026-10-31.md)。修复 sync-in 父级符号链接、同长度损坏对象复用、真实 LFS JSON envelope 和 no-checkout 下 .lfsconfig 检查失效。真实客户端回归在临时 HEAD 副本上复现失败，修复后通过。最终 native：94 项，91 通过、0 failure/error、3 跳过；报告 artifacts/audit-native-final.json，complete:false。跳过两项 Docker Compose 和一项 Linux maintenance 真实 restic。登录入口服务端/native 验证通过，浏览器 host 不可用，未验证弹窗与凭据缓存。当前无 Docker/restic，未执行本轮 Linux CI/镜像漏洞扫描，未提交/推送/部署。写栅栏、apply 并发、角色运行配置与无 access 恢复仍未闭合，不能宣称全面审计验收完成。

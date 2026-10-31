@@ -1,5 +1,6 @@
 # Public HTTPS edge. Combine with docker-compose.yml and
-# docker-compose.access.yml. The Web backend is removed from host-published
+# optionally docker-compose.access.yml for collaboration. Public-only data
+# needs no access overlay. The Web backend is removed from host-published
 # ports and is reachable only through Caddy.
 services:
   cgit:
