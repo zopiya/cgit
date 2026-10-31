@@ -45,4 +45,4 @@ git clone http://主机地址:8080/demo
 - [开发与验证](docs/DEVELOPMENT.md)：Go 构建、测试、CI 和实现入口。
 - [验收与已知限制](docs/VALIDATION.md)：可追溯测试结果和部署前待验事项。
 
-上一轮文档与 Compose 整理版本已通过 [Linux Actions](https://github.com/zopiya/cgit/actions/runs/41208433154)：41 项完整容器测试无跳过，9 组 Compose 配置及自定义端口检查通过，测试提交 `3322a51`。自动验收不代表真实 NAS/VPS 部署完成，详细范围见验收记录。
+当前性能优化版本已通过 [Linux Actions](https://github.com/zopiya/cgit/actions/runs/41210377194)：43 项完整容器测试无跳过，Compose 配置与性能参数检查通过，测试提交 `f37078d`。自动验收不代表 100 GiB 传输或真实 NAS/VPS 部署完成，详细范围见验收记录。

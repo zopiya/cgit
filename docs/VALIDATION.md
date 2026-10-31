@@ -4,6 +4,17 @@
 
 本文保留可追溯结果和当前限制，不把阶段测试流水当作操作指南。每次运行仅证明其对应源码/配置，后续修改要重新验证。
 
+## 最近一次完整 Linux 验收：性能与容量增量
+
+[Actions 41210377194](https://github.com/zopiya/cgit/actions/runs/41210377194) 对提交 `f37078da6d39593aa7a56a478138342d43b6c41d` 完整通过。协议基线与 Linux job 成功，发布 job 跳过，没有发布或部署。
+
+- container.json：43 项全部 passed，0 failure/error/skip，complete:true；source_revision 与上述提交一致。新增单库策略隔离、空间不足 507 且不发布半成品两条用例均明确 passed。
+- 两镜像构建、Compose 配置/性能参数传递、实际 Web/Git/LFS/SSH、TLS、真实 restic 恢复及 Go race/fuzz 回归通过。
+- security.json：automated_ok:true，complete:false、production_verified:false；secrets.json=[]，Go 漏洞门禁 findings:[]。
+- Web 测试镜像本地 ID：`sha256:d3251009db7fb9420d5fb2c993580e70db27baf1c3643460a9db153b502c40e8`，不是已发布 registry digest。
+
+已下载核对报告至本地忽略目录 `artifacts/actions-41210377194/`。本节由随后仅文档的 `[skip ci]` 提交记录，未修改已测试运行代码/配置。页面加速证据仍来自下方 native 基准；Linux 功能绿色不证明 100 GiB 传输、吞吐/并发容量或真实生产部署。人工缺口见文末。
+
 ## 性能与容量增量：推送前本地基线
 
 本轮新增独立 HTTP 请求大小、空闲超时、连接数、HTTP/SSH Git pack 参数和 LFS 上传空间准入；access 单库页面只查询目标策略，首页仍检查完整可见列表。用法与限制见 [性能与容量](PERFORMANCE.md)。
@@ -12,9 +23,9 @@
 
 32 个业务仓库的独立 native 顺序基准中，单库 tree 授权查询 33 → 1、中位耗时 1807.748 → 257.078 ms；旧 query 同样减至 1 次，首页查询 32 次不变。报告与局部证据边界见 PERFORMANCE.md。
 
-本轮未修改真实仓库或部署环境，未安装 Docker。下方历史 Actions 不覆盖本轮新代码，本轮 Linux 结果另行记录。没有实测 100 GiB 上传、满盘并发、网络吞吐/资源上限或文件系统配额，不能由可配置数值推导容量保证。
+本轮未修改真实仓库或部署环境，未安装 Docker。本轮 Linux 结果已在本文顶部单独记录，下方更早 Actions 保留各自历史范围。没有实测 100 GiB 上传、满盘并发、网络吞吐/资源上限或文件系统配额，不能由可配置数值推导容量保证。
 
-## 最近一次完整 Linux 验收
+## 文档与 Compose 整理的 Linux 验收
 
 本轮文档与 Compose 整理提交 `3322a51f1ce0219a9c76dcb7a24cc762e8231144` 已在 [Actions 41208433154](https://github.com/zopiya/cgit/actions/runs/41208433154) 通过（2026-10-31）。协议基线与 Linux 容器两项 job 成功，发布 job 跳过，没有发布或部署。
 

@@ -66,6 +66,6 @@ python3 scripts/benchmark.py --repositories 30 --requests 7 --report artifacts/p
 | 旧 query tree | 1815.060 ms | 257.901 ms | 33 → 1 |
 | 根目录首页 | 1784.303 ms | 1632.042 ms | 32 → 32 |
 
-报告为忽略目录中的 `artifacts/performance-before-final.json` / `performance-after-final.json`，前者使用 `/tmp/cgit-runtime-before-performance` 参考二进制，后者摘要已与当前构建核对。单库页面在此夹具约降低 86% 延迟；首页算法未改变，时间差不作为收益承诺。旧二进制为本轮修改前保存的 Go 构建，当前工作区未提交，报告 checkout revision/dirty 与二进制摘要分开记录。
+报告为忽略目录中的 `artifacts/performance-before-final.json` / `performance-after-final.json`，前者使用 `/tmp/cgit-runtime-before-performance` 参考二进制，后者摘要已与当前构建核对。单库页面在此夹具约降低 86% 延迟；首页算法未改变，时间差不作为收益承诺。旧二进制为本轮修改前保存的 Go 构建，测量当时工作区未提交，报告 checkout revision/dirty 与二进制摘要分开记录。
 
-最终 native 契约 43 项中 39 通过、0 failure/error、4 明确容器跳过，complete:false；Go race/真实 restic 内部回归与 amd64 交叉编译通过。没有安装/执行 Docker，当前增量尚无 Linux 容器或远端 Actions 结果。完整 native/容器功能测试、吞吐/并发压力、100 GiB 容量和生产网络是不同验证层，不能互相代替。
+最终 native 契约 43 项中 39 通过、0 failure/error、4 明确容器跳过，complete:false；Go race/真实 restic 内部回归与 amd64 交叉编译通过。本机没有安装/执行 Docker。随后提交 `f37078d` 已通过 [Linux Actions 41210377194](https://github.com/zopiya/cgit/actions/runs/41210377194)：43 项容器契约全部通过，无跳过，包含新增空间准入和单库授权隔离回归，以及 Compose 性能参数传递检查。自动安全门禁通过；未发布或部署。完整 native/容器功能测试、吞吐/并发压力、100 GiB 容量和生产网络是不同验证层，不能互相代替。
