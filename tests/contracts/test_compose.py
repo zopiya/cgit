@@ -48,10 +48,13 @@ class ComposeTlsContract(unittest.TestCase):
             )
             cls._export_ca()
             cls._wait_for_https()
-        except BaseException:
+        except BaseException as exc:
+            diagnostics = cls.compose("logs", "--no-color", "--tail", "80", check=False)
             cls.compose("down", "-v", "--remove-orphans", "--timeout", "5", check=False)
             cls.fixture.close()
-            raise
+            raise AssertionError(
+                f"Compose fixture startup failed: {exc}\n"
+                f"{diagnostics.stdout}{diagnostics.stderr}") from exc
 
     @classmethod
     def tearDownClass(cls):
@@ -139,7 +142,10 @@ class ComposeTlsContract(unittest.TestCase):
         for path in cls._compose_files():
             command += ["-f", str(path)]
         command += list(args)
-        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+        environment = {**ENV, "CGIT_DOMAIN": cls.domain,
+                       "CGIT_ACME_EMAIL": "contract@example.invalid"}
+        result = subprocess.run(command, capture_output=True, text=True,
+                                timeout=timeout, env=environment)
         if check and result.returncode:
             raise AssertionError(
                 f"docker compose {' '.join(args)} failed ({result.returncode}):\n"

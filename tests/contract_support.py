@@ -396,7 +396,7 @@ class Service:
             os.environ.get("CGIT_TEST_IMAGE", "cgit:test"),
         ]
         run(*args)
-        port = run("docker", "port", self.ssh_container, "2222").decode().strip().rsplit(":", 1)[1]
+        port = run("docker", "port", self.ssh_container, "2222").stdout.decode().strip().rsplit(":", 1)[1]
         self.ssh_port = int(port)
         for _ in range(100):
             probe = subprocess.run(

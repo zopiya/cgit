@@ -69,6 +69,8 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: cgit:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           # No registry login or production credentials in either test job.
       - name: Required real cgit/lighttpd and Git/LFS clients
         env:

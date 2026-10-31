@@ -17,7 +17,7 @@ if [ "$(id -u)" = "0" ]; then
     user_name="$(getent passwd "$PUID" 2>/dev/null | cut -d: -f1 || true)"
     if [ -z "$user_name" ]; then
         adduser -D -H -h "$ACCESS_ROOT" -u "$PUID" -G "$group_name" \
-            -s /usr/bin/git-shell git
+            -s /bin/sh git
         user_name=git
     fi
 

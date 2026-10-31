@@ -132,7 +132,8 @@ class GatewayTests(unittest.TestCase):
                 "-e", "CGIT_USERNAME=owner", "-e", "CGIT_PASSWORD_FILE=/run/password",
                 "-e", "CGIT_HTTP_PUSH=1", "-e", "CGIT_AUTH_MODE=private",
                 "-v", f"{cls.repos}:/repos", "-v", f"{cls.lfs}:/lfs", "-v", f"{cls.cache}:/var/cache/cgit",
-                "-v", f"{cls.password}:/run/password:ro", image)
+                "-v", f"{cls.password}:/run/password:ro",
+                "-v", f"{cls.root}:{cls.root}", image)
             port = run("docker", "port", cls.container, "8080").stdout.decode().strip().rsplit(":", 1)[1]
             cls.base = "http://127.0.0.1:" + port
             for _ in range(100):
@@ -237,6 +238,13 @@ class GatewayTests(unittest.TestCase):
                 else:
                     p.unlink()
         self.cfg = {**self.baseline, "auth_mode": "public", "http_push": True, "base_url": ""}
+        if self.driver == "docker":
+            # These white-box tests publish runtime snapshots from the host.
+            # Mount the fixture at the same absolute path in both environments.
+            self.cfg.update(repos=str(self.repos), lfs=str(self.lfs),
+                            cgit_config=str(self.cache / "runtime/cgitrc"))
+            cgitrc = self.cache / "runtime/cgitrc"
+            cgitrc.write_text(cgitrc.read_text().replace("/repos", str(self.repos)))
         self.save_config()
         self.bare = self.repos / "group/demo.git"
         self.bare.parent.mkdir(parents=True, exist_ok=True)
@@ -370,7 +378,8 @@ class GatewayTests(unittest.TestCase):
         (access / "maintenance").unlink()
         self.cfg.update(
             auth_mode="access", username="", password_file="", http_push=True,
-            access={"root": str(access), "gitolite": str(binary)},
+            access={"root": str(access), "gitolite": (
+                "/usr/local/bin/gitolite" if self.driver == "docker" else str(binary))},
         )
         self.save_config()
         return users
