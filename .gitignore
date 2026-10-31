@@ -14,3 +14,7 @@ __pycache__/
 *.pyc
 .venv/
 artifacts/
+
+bin/
+
+coordination/

@@ -2,6 +2,7 @@
 """Run explicit verification layers and write an honest, machine-readable result."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -70,6 +71,19 @@ def main():
               "layer": {"cgi": "local-protocol-partial", "lighttpd": "native-service", "docker": "linux-container"}[args.driver],
               "ok": False, "complete": False, "production_verified": False}
     try:
+        production_files = sorted([*ROOT.glob("internal/**/*.go"), *ROOT.glob("cmd/**/*.go"),
+                                   *ROOT.glob("config/*"), *ROOT.glob("docker-*.sh"),
+                                   ROOT / "go.mod", ROOT / "go.sum", ROOT / "Dockerfile", ROOT / "Dockerfile.maintenance"])
+        fingerprint = hashlib.sha256()
+        for path in production_files:
+            if path.is_file():
+                fingerprint.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes() + b"\0")
+        report["source_tree_sha256"] = fingerprint.hexdigest()
+        runtime = Path(os.environ.get("CGIT_TEST_RUNTIME", str(ROOT / "bin/cgit-runtime")))
+        if not runtime.is_file():
+            raise RuntimeError("Build the Go runtime first: go build -o bin/cgit-runtime ./cmd/cgit-runtime")
+        report["runtime_sha256"] = hashlib.sha256(runtime.read_bytes()).hexdigest()
+        report["source_revision"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
         if sys.version_info < (3, 11):
             raise RuntimeError("Python 3.11+ is required for this verification harness")
         for executable in ("git", "git-lfs"):

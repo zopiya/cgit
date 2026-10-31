@@ -30,4 +30,6 @@ LoginGraceTime 30
 UseDNS no
 PrintMotd no
 AcceptEnv GIT_PROTOCOL
+# sshd constructs a fresh session environment; explicitly select its own role config.
+SetEnv CGIT_RUNTIME_CONFIG=/run/cgit-ssh/runtime/settings.json
 LogLevel VERBOSE

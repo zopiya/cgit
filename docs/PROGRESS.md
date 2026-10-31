@@ -153,3 +153,16 @@
 ## 2026-10-31 当前工作区审计增量
 
 详见 [审计记录](AUDIT-2026-10-31.md)。修复 sync-in 父级符号链接、同长度损坏对象复用、真实 LFS JSON envelope 和 no-checkout 下 .lfsconfig 检查失效。真实客户端回归在临时 HEAD 副本上复现失败，修复后通过。最终 native：94 项，91 通过、0 failure/error、3 跳过；报告 artifacts/audit-native-final.json，complete:false。跳过两项 Docker Compose 和一项 Linux maintenance 真实 restic。登录入口服务端/native 验证通过，浏览器 host 不可用，未验证弹窗与凭据缓存。当前无 Docker/restic，未执行本轮 Linux CI/镜像漏洞扫描，未提交/推送/部署。写栅栏、apply 并发、角色运行配置与无 access 恢复仍未闭合，不能宣称全面审计验收完成。
+
+
+## Go runtime 全量替换（当前本地工作区）
+
+实现与兼容性见 [GO-RUNTIME.md](GO-RUNTIME.md)。生产 Python 的 11 个模块已退役，Web/SSH/maintenance、配置/诊断/过滤器/日志/access/jobs 均由 cgit-runtime 提供，没有 Python fallback。Python 仅保留在外部黑盒测试和 CI 证据工具，不进入运行镜像。
+
+验证：完整 native 报告 artifacts/go-native-final.json，41 项中 37 通过、0 failure/error、4 跳过（两项 Compose、一项两镜像无 Python 库存、一项 Linux maintenance 真 restic）；complete:false。Go 命名回归真实执行 race 与 fuzz；另外用下载并校验官方 SHA-256 的 restic 0.19.1 完成加密备份、独立目录恢复、Git clone、非空 LFS 字节比对、错误密码拒绝和恢复损坏拒绝。macOS native 不代替 Linux 容器/包组合。Linux/amd64 静态 ELF 交叉编译通过，go vet/go mod verify、ShellCheck、Go 契约库存与 diff 检查通过。
+
+2026-10-31 的 govulncheck 1.9.0 扫描先发现新依赖 Goldmark 1.7.16 命中 GO-2026-5320，已升级到修复版 1.7.17；重扫 findings:[]，报告 artifacts/go-vuln.json 和 go-vuln-gate.json。JSON 模式即使输出发现也可能返回 0，因此新增明确拒绝 findings/空报告/截断报告的门禁，并加入 CI。该扫描不覆盖 Alpine OS 包、镜像或宿主漏洞。初次 checksum 服务 unexpected EOF 重试后通过，没有关闭校验。
+
+本轮同时对齐 sync-in 的 LFS 实际仓库名（含 .git）路径、单账号写协调锁、apply 排空和 SSH 独立运行配置。没有搬动真实数据；旧错误 sync-in 目录需先备份和校验再人工迁入。HEAD 与 refs 跨步骤原子性、外部写入口停写、无 access 恢复验收、浏览器/资源压力/跨容器故障仍不能宣称闭合。
+
+CI 已改用 Go 构建/漏洞扫描和原独立协议契约，要求真实 restic 与无 skip 的 Go 回归；未推送执行。未构建运行本轮 Docker/Compose、未操作 NAS/VPS、未提交或部署。此前 Python 的 94 项、历史 Linux 89 项不能代替本轮 Go 验收。

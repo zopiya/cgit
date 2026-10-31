@@ -20,12 +20,12 @@ if [ "$(id -u)" = "0" ]; then
     fi
     chown -R "$PUID:$PGID" /job-state /job-work /run
     chown "$PUID:$PGID" /backups
-    su-exec "$PUID:$PGID" python3 /usr/local/lib/cgit-maintenance/jobs.py validate
-    su-exec "$PUID:$PGID" python3 /usr/local/lib/cgit-maintenance/jobs.py \
+    su-exec "$PUID:$PGID" cgit-runtime jobs validate
+    su-exec "$PUID:$PGID" cgit-runtime jobs \
         crontab --output /run/crontab
     exec su-exec "$PUID:$PGID" supercronic /run/crontab
 fi
 
-python3 /usr/local/lib/cgit-maintenance/jobs.py validate
-python3 /usr/local/lib/cgit-maintenance/jobs.py crontab --output /run/crontab
+cgit-runtime jobs validate
+cgit-runtime jobs crontab --output /run/crontab
 exec supercronic /run/crontab

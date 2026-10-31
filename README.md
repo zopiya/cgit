@@ -4,11 +4,11 @@
 保留轻量仓库浏览，增加 Git Smart HTTP、Git LFS、个人账号和维护检查。
 仅构建 `linux/amd64`；无需数据库、外部对象存储或运行时出站网络。
 
-容器内的 Web 服务器是 **lighttpd，不是 Nginx**。请求依次经过 lighttpd、Python CGI 网关，再交给 cgit 页面、Git HTTP 后端或 LFS 文件接口。NAS/公网入口可以接已有反向代理，但不是本项目必须部署的另一项服务。
+容器内的 Web 服务器是 **lighttpd，不是 Nginx**。请求依次经过 lighttpd、Go CGI 网关，再交给 cgit 页面、Git HTTP 后端或 LFS 文件接口。NAS/公网入口可以接已有反向代理，但不是本项目必须部署的另一项服务。
 
 同一套代码支持个人内网匿名浏览、独立公开发布实例，以及可选 Gitolite access 协作。基础浏览不需要 access；项目自带 SSH 当前依赖 access，简单部署可使用受控宿主 SSH。公网实例只能挂载明确公开的数据，不能挂载私有库后仅靠隐藏或 ACL 保密。
 
-当前工作区审计和未闭合风险见 [审计记录](docs/AUDIT-2026-10-31.md)，操作入口见 [维护说明](docs/OPERATIONS.md)。历史 Linux CI 与当前本地结果必须分开；当前尚未部署 NAS/VPS。本轮先审稳 Python 实现，Go 迁移文档保留为后续规划。
+当前工作区审计和未闭合风险见 [审计记录](docs/AUDIT-2026-10-31.md)，操作入口见 [维护说明](docs/OPERATIONS.md)。历史 Linux CI 与当前本地结果必须分开；当前尚未部署 NAS/VPS。当前生产 runtime 已替换为 Go，迁移边界与验收状态见 [Go runtime](docs/GO-RUNTIME.md)。
 
 ## 开始使用
 
@@ -36,7 +36,7 @@ Smart HTTP 自动处理 clone/fetch；旧 dumb HTTP 的读取端点仍然可用�
 
 单账号 public/private 模式：**一个账号管理这套服务的全部仓库**；逐仓库 ACL 属于可选 access 模式。
 
-需要公开/私有混合仓库、少量协作者和容器 SSH 时，使用 `docker-compose.access.yml`；该模式以 Gitolite 的 `gitolite.conf + keydir` 为权威，身份与策略应用入口是 `runtime/access.py`。历史 Linux 结果见 PROGRESS；当前工作区的验证范围和限制以审计记录为准。
+需要公开/私有混合仓库、少量协作者和容器 SSH 时，使用 `docker-compose.access.yml`；该模式以 Gitolite 的 `gitolite.conf + keydir` 为权威，身份与策略应用入口是 `cgit-runtime access`。历史 Linux 结果见 PROGRESS；当前工作区的验证范围和限制以审计记录为准。
 
 | 模式 | 浏览、克隆、LFS 下载 | LFS 上传 | Git HTTP push |
 |---|---|---|---|
@@ -218,7 +218,9 @@ tar -czf "backups/cgit-data-$(date +%Y%m%d-%H%M%S).tar.gz" repos lfs
 
 ```sh
 # 本地协议测试；不读写用户全局 Git 配置。报告明确标注缺少真实 Web/容器证据。
-python3 scripts/check_contracts.py --stage baseline
+make build
+make test
+python3 scripts/check_contracts.py --stage go
 python3 scripts/test.py --driver cgi --report artifacts/local.json
 
 # 完整镜像验证，额外覆盖真实 lighttpd、cgit 页面和过滤器。
@@ -226,9 +228,9 @@ docker build -t cgit:test .
 CGIT_TEST_IMAGE=cgit:test python3 scripts/test.py --driver docker --require-no-skips --report artifacts/container.json
 ```
 
-测试要求 Python 3.11+、Git、Git LFS，只使用临时合成仓库及测试密码。CGI 驱动属于部分证据，会跳过真实 Web 检查；完整 Docker 驱动缺引擎或发生跳过即失败。
+生产不需要 Python；外部测试驱动要求 Python 3.11+、Go 1.26+、Git、Git LFS，只使用临时合成仓库及测试密码。CGI 驱动属于部分证据，会跳过真实 Web 检查；完整 Docker 驱动缺引擎或发生跳过即失败。
 
-新增独立契约位于 `tests/contracts/`，从外部 HTTP/Git/LFS/配置 CLI 验证行为，不导入生产模块；原有内部回归仍保留。`contracts/runtime.json` 区分已实现基线与尚缺的 Python 完整方案/Go 交付用例，静态库存检查不等于功能验证。
+新增独立契约位于 `tests/contracts/`，从外部 HTTP/Git/LFS/配置 CLI 验证行为，不导入生产模块；原有实现耦合回归已由 Go 单测替换，配置 CLI 断言保留。`contracts/runtime.json` 记录基线及 Go 交付用例，静态库存检查不等于功能验证。
 
 CI 定义：PR/main/work 分支/定期/手动测试 → 协议基线 → amd64 构建 → 真实 cgit/lighttpd + 黑盒与现有回归。测试 job 只有读取权限，不登录 registry。仅在 main 手动选择 publish 后发布已测试的同一份镜像，并拉取 digest 复验；不会自动部署。定期构建只验证依赖更新，不自动替换正式镜像。
 

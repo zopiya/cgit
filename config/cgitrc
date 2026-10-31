@@ -21,12 +21,12 @@ virtual-root=/
 # Derived from the request itself rather than a fixed hostname, so the
 # clone command shown in the UI is correct whether you're hitting this by
 # LAN IP, Tailscale IP, or (if one's ever added later) a proxied domain.
-# configure.py replaces this default using CGIT_BASE_URL and optionally adds
+# cgit-runtime configure replaces this default using CGIT_BASE_URL and optionally adds
 # CGIT_SSH_CLONE_URL before scan-path. Set CGIT_BASE_URL behind a TLS proxy.
 clone-url=http://$HTTP_HOST/$CGIT_REPO_URL
 
 cache-root=/var/cache/cgit
-# configure.py also enforces this in the generated runtime config: LFS object
+# cgit-runtime configure also enforces this in the generated runtime config: LFS object
 # availability can change even when the Git commit has not changed.
 cache-size=0
 
@@ -54,7 +54,7 @@ snapshots=tar.gz zip
 
 # Render each repo's README as its "about" tab, converted from Markdown to
 # HTML (fenced code blocks, tables, syntax-highlighted code — see
-# runtime/about_filter.py for the supported Markdown extensions). The ":"
+# the Go about-filter for the supported Markdown extensions). The ":"
 # prefix means "read from the tip of the default branch", not a
 # filesystem path, so this works for mirrored repos too. readme= may be
 # repeated; cgit uses the first filename that exists (case-sensitive, so
@@ -65,10 +65,10 @@ readme=:README.markdown
 readme=:readme.markdown
 readme=:README
 readme=:readme
-about-filter=/usr/local/lib/cgit-personal/about_filter.py
+about-filter=/usr/local/bin/about-filter
 
 # Syntax-highlighted source in the tree/blob view.
-source-filter=/usr/local/lib/cgit-personal/source_filter.py
+source-filter=/usr/local/bin/source-filter
 
 # Activity statistics are disabled by default. Opt in on an individual repo
 # with `git config cgit.max-stats month` if the chart is useful.

@@ -1,3 +1,5 @@
+> 当前实现已迁移到 Go，源码与验证边界见 [GO-RUNTIME.md](GO-RUNTIME.md)。本文保留为历史规划，其中环境和 CI 描述不作为当前事实。
+
 # Python 验证、Go 交付与 GitHub Actions 测试计划
 
 日期：2026-10-31。状态：待审阅规划；没有实现 Go runtime，也没有修改/运行远端 Actions。配套 [总体方案](PLAN.md) 与 [安全设计](SECURITY-DESIGN.md)。

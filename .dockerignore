@@ -23,3 +23,7 @@ docs
 artifacts
 contracts
 scripts
+
+bin
+
+coordination/

@@ -4,6 +4,9 @@ set -eu
 PUID="${PUID:-1000}"
 PGID="${PGID:-1000}"
 ACCESS_ROOT="${CGIT_ACCESS_ROOT:-/access}"
+# Each role generates its own settings; never overwrite the Web runtime.
+export CGIT_RUNTIME_DIR=/run/cgit-ssh/runtime
+export CGIT_RUNTIME_CONFIG=/run/cgit-ssh/runtime/settings.json
 
 mkdir -p /run/cgit-ssh /ssh-host-keys "$ACCESS_ROOT/ssh" /var/cache/cgit
 
@@ -37,11 +40,12 @@ if [ "$(id -u)" = "0" ]; then
     fi
     chown "$PUID:$PGID" "$ACCESS_ROOT/ssh/authorized_keys"
 
-    sed "s/^AllowUsers git$/AllowUsers $user_name/" \
+    sed -e "s/^AllowUsers git$/AllowUsers $user_name/" \
+        -e "s|^AuthorizedKeysFile .*|AuthorizedKeysFile $ACCESS_ROOT/ssh/authorized_keys|" \
         /etc/ssh/cgit_sshd_config > /run/cgit-ssh/sshd_config
-    su-exec "$PUID:$PGID" python3 /usr/local/lib/cgit-personal/configure.py
+    su-exec "$PUID:$PGID" cgit-runtime configure
     exec /usr/sbin/sshd -D -e -f /run/cgit-ssh/sshd_config
 fi
 
-python3 /usr/local/lib/cgit-personal/configure.py
+cgit-runtime configure
 exec /usr/sbin/sshd -D -e -f /etc/ssh/cgit_sshd_config

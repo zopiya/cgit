@@ -1,6 +1,8 @@
+> 当前 Go 迁移与验证边界见 [GO-RUNTIME.md](GO-RUNTIME.md)。下文历史 Linux 结果仅对应旧 Python 提交。
+
 # 个人维护说明
 
-默认结构仍可用单镜像、lighttpd、Python CGI 和 cgit。工作区另有候选的 `edge + web + ssh + maintenance` Compose 角色；新增路径已通过 native 和 Linux Actions 的授权/SSH/LFS、Compose/TLS 与真实加密恢复测试，尚未在 NAS/VPS 部署。
+默认结构仍可用单镜像、lighttpd、Go CGI 和 cgit。工作区另有候选的 `edge + web + ssh + maintenance` Compose 角色；新增路径已通过 native 和 Linux Actions 的授权/SSH/LFS、Compose/TLS 与真实加密恢复测试，尚未在 NAS/VPS 部署。
 本说明提供操作步骤，不代表已完成部署验收；不要同时启用未定义的旧 SSH 管理和容器 SSH 而不先确认端口、密钥与公网暴露范围。
 
 ## 使用边界
@@ -65,19 +67,19 @@ docker compose -f docker-compose.yml -f docker-compose.access.yml \
 
 # 同一配置手动运行任务并查看最近状态。
 docker compose -f docker-compose.yml -f docker-compose.access.yml \
-  --profile maintenance run --rm --entrypoint python3 maintenance \
-  /usr/local/lib/cgit-maintenance/jobs.py run --id integrity-check
+  --profile maintenance run --rm --entrypoint /usr/local/bin/cgit-runtime maintenance \
+  jobs run --id integrity-check
 docker compose -f docker-compose.yml -f docker-compose.access.yml \
-  --profile maintenance run --rm --entrypoint python3 maintenance \
-  /usr/local/lib/cgit-maintenance/jobs.py status
+  --profile maintenance run --rm --entrypoint /usr/local/bin/cgit-runtime maintenance \
+  jobs status
 ```
 
 restic 恢复必须指向不存在的空目标。命令先让 restic 恢复，再校验 access generation、编译策略、仓库 `gl-conf`、SSH 授权、LFS token key，并运行完整 Git/LFS 完整性扫描；失败目录会保留供排查，不会自动覆盖或删除。
 
 ```sh
 docker compose -f docker-compose.yml -f docker-compose.access.yml \
-  --profile maintenance run --rm --entrypoint python3 maintenance \
-  /usr/local/lib/cgit-maintenance/jobs.py restore \
+  --profile maintenance run --rm --entrypoint /usr/local/bin/cgit-runtime maintenance \
+  jobs restore \
   --repository /backups/restic --password-file /secrets/restic_password \
   --snapshot latest --destination /backups/restore-drill
 ```
@@ -137,12 +139,12 @@ docker compose -f docker-compose.yml -f docker-compose.access.yml \
 - 独立公开发布：基础 + docker-compose.public.yml，设置 CGIT_DOMAIN/CGIT_ACME_EMAIL；仅放公开副本，不必叠 access。
 - 可选协作：基础 + access，按需启用 ssh/maintenance profile；不要再叠 write 覆盖文件。
 
-人员与公钥入口：access/.gitolite/conf/gitolite.conf、access/keydir 和管理员 identities JSON，凭据哈希由 `runtime/access.py hash-secret --secret-file <临时凭据文件>` 生成；`runtime/access.py apply --directory <access绝对路径> --repos <repos绝对路径> --identities <身份文件> --gitolite <gitolite绝对路径>` 编译并发布快照/authorized_keys。owner 标记不替代 Gitolite R/RW 规则。身份禁用、公钥撤销需重新 apply，不能只编辑快照。初始化与失败重试应先在合成环境演练，不在运行中的数据目录试错。
+人员与公钥入口：access/.gitolite/conf/gitolite.conf、access/keydir 和管理员 identities JSON，凭据哈希由 `cgit-runtime access hash-secret --secret-file <临时凭据文件>` 生成；`cgit-runtime access apply --directory <access绝对路径> --repos <repos绝对路径> --identities <身份文件> --gitolite <gitolite绝对路径>` 编译并发布快照/authorized_keys。owner 标记不替代 Gitolite R/RW 规则。身份禁用、公钥撤销需重新 apply，不能只编辑快照。初始化与失败重试应先在合成环境演练，不在运行中的数据目录试错。
 
 新库由管理员 `git init --bare --initial-branch=main <repos/name.git>` 创建；access 模式还必须更新 Gitolite 策略并 apply。仓库重命名必须一并迁移对应 lfs/<逻辑仓库名>，重新应用策略并校验旧/新 URL；目前没有原子改名 CLI。
 
-任务配置入口为 jobs/jobs.json（从根目录 jobs.example.json 复制）；`runtime/jobs.py --help` 列出 validate/crontab/status/run/restore 等实际命令。archive 仅保存 repos/lfs，不能代替完整服务恢复。restic 默认数据为 repos/lfs/access；宿主秘密、源配置、SSH 主机密钥是否覆盖取决于显式 paths，必须核对，而不是假设默认已保存。恢复到独立空目录后再做完整 Git/LFS/权限与客户端检查，不覆盖运行实例。
+任务配置入口为 jobs/jobs.json（从根目录 jobs.example.json 复制）；`cgit-runtime jobs --help` 列出 validate/crontab/status/run/restore 等实际命令。archive 仅保存 repos/lfs，不能代替完整服务恢复。restic 默认数据为 repos/lfs/access；宿主秘密、源配置、SSH 主机密钥是否覆盖取决于显式 paths，必须核对，而不是假设默认已保存。恢复到独立空目录后再做完整 Git/LFS/权限与客户端检查，不覆盖运行实例。
 
-当前 restore 验收要求 access 完整快照，简单无 access 部署尚无对应验收模式。普通账号 HTTP 写入及宿主 SSH 不遵守 access 写锁；这类实例做 archive/restic 时必须先停写。access 策略 apply 的在途写入排空也尚未闭合，维护前应停写。失败后的 maintenance 标记需确认没有存活任务/写入、核对策略和备份完整性后处理，不要自动删除标记恢复服务。
+当前 restore 验收要求 access 完整快照，简单无 access 部署尚无对应验收模式。Go 项目内 HTTP/LFS/SSH 写入与维护共用协调锁，apply 等待在途写入排空；宿主 SSH 等外部入口仍须先停写。跨容器运行效果仍待 Linux 验收。失败后的 maintenance 标记需确认没有存活任务/写入、核对策略和备份完整性后处理，不要自动删除标记恢复服务。
 
 备份目的地与原始数据同盘只能防部分误操作；独立故障域、保留周期及离线恢复密码需由实际部署配置落实。本轮没有替用户建立异地备份或保管恢复密钥。

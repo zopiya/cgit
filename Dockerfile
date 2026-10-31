@@ -125,7 +125,6 @@ RUN apk add --no-cache \
         build-base \
         pkgconf \
         perl \
-        python3 \
         zlib-dev \
         openssl-dev \
         lua5.4-dev
@@ -158,6 +157,14 @@ RUN make \
 ########################################
 # 3. Runtime stage
 ########################################
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS go-runtime
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/cgit-runtime ./cmd/cgit-runtime
+
 FROM alpine:${ALPINE_VERSION} AS runtime
 ARG CGIT_VERSION
 
@@ -166,8 +173,8 @@ LABEL org.opencontainers.image.title="cgit" \
       org.opencontainers.image.version="${CGIT_VERSION}" \
       org.opencontainers.image.licenses="GPL-2.0-only"
 
-# Python runs the CGI gateway and filters. Markdown/Pygments render source;
-# Bleach sanitizes README HTML. Alpine's git-daemon subpackage includes
+# Go runs the CGI gateway, filters and administrative commands.
+# Alpine's git-daemon subpackage includes
 # git-http-backend (no git daemon is started).
 RUN apk add --no-cache \
         lighttpd \
@@ -181,10 +188,6 @@ RUN apk add --no-cache \
         lua5.4-libs \
         tzdata \
         perl \
-        python3 \
-        py3-pygments \
-        py3-markdown \
-        py3-bleach \
     && mkdir -p /var/cache/cgit /repos /lfs /usr/local/libexec
 
 COPY --from=build /out/var/www/htdocs/cgit /var/www/htdocs/cgit
@@ -195,11 +198,12 @@ RUN mv /var/www/htdocs/cgit/cgit.cgi /usr/local/libexec/cgit.cgi \
     && ln -s /usr/local/libexec/gitolite/gitolite /usr/local/bin/gitolite \
     && gitolite query-rc GL_BINDIR >/dev/null
 
-COPY runtime/ /usr/local/lib/cgit-personal/
-RUN chmod +x /usr/local/lib/cgit-personal/*.py \
-    && ln -s /usr/local/lib/cgit-personal/gateway.py /var/www/htdocs/cgit/gateway.cgi \
-    && ln -s /usr/local/lib/cgit-personal/doctor.py /usr/local/bin/cgit-doctor \
-    && ln -s /usr/local/lib/cgit-personal/ssh_command.py /usr/local/bin/cgit-ssh
+COPY --from=go-runtime /out/cgit-runtime /usr/local/bin/cgit-runtime
+RUN ln -s /usr/local/bin/cgit-runtime /var/www/htdocs/cgit/gateway.cgi \
+    && for entry in cgit-doctor cgit-ssh cgit-configure cgit-access cgit-jobs about-filter source-filter access-log; do \
+         ln -s cgit-runtime /usr/local/bin/$entry; \
+       done \
+    && find /usr/local/lib/cgit/filters -name '*.py' -delete
 
 COPY config/cgitrc /etc/cgitrc
 COPY config/lighttpd.conf /etc/lighttpd/lighttpd.conf

@@ -80,6 +80,7 @@ services:
       - ./lfs:/lfs
       - ./access:/access
       - ./cache:/var/cache/cgit:ro
+      - ./coordination:/coordination
       - ./backups:/backups
       - ./secrets:/secrets:ro
     depends_on:

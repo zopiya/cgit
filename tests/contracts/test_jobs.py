@@ -11,10 +11,9 @@ import tarfile
 import tempfile
 import unittest
 
-from contract_support import ENV, run
+from contract_support import ENV, RUNTIME, run
 
 ROOT = Path(__file__).resolve().parents[2]
-JOBS = ROOT / "runtime/jobs.py"
 
 
 def canonical(value):
@@ -66,7 +65,7 @@ class JobsCliContract(unittest.TestCase):
 
     def cli(self, command, *args, env=None, check=True):
         base = [
-            sys.executable, str(JOBS),
+            RUNTIME, "jobs",
             "--config", str(self.config),
             "--state", str(self.state),
             "--work", str(self.job_work),
@@ -138,7 +137,8 @@ class JobsCliContract(unittest.TestCase):
         crontab = self.root / "crontab"
         scheduled = json.loads(self.cli("crontab", "--output", str(crontab)).stdout)
         self.assertEqual(scheduled["scheduled"], 3)
-        self.assertIn("run --id archive", crontab.read_text())
+        commands = [shlex.split(line)[5:] for line in crontab.read_text().splitlines() if not line.startswith("TZ=")]
+        self.assertTrue(any(args[-3:] == ["run", "--id", "archive"] for args in commands))
 
         result = json.loads(self.cli("run", "--id", "archive").stdout)
         archive = self.backups / result["summary"]["archive"]
@@ -221,8 +221,8 @@ class JobsCliContract(unittest.TestCase):
                 "-v", f"{self.config}:/jobs/jobs.json:ro",
                 "-v", f"{password}:/secrets/password:ro",
                 "-v", f"{self.state}:/job-state", "-v", f"{self.job_work}:/job-work",
-                "-v", f"{restored}:/restore", "--entrypoint", "python3", image,
-                "/usr/local/lib/cgit-maintenance/jobs.py", *arguments, check=check)
+                "-v", f"{restored}:/restore", "--entrypoint", "/usr/local/bin/cgit-runtime", image,
+                "jobs", *arguments, check=check)
 
         backup = json.loads(maintenance("run", "--id", "encrypted").stdout)
         self.assertEqual(backup["status"], "success")

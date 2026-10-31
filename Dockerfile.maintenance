@@ -1,5 +1,13 @@
 # syntax=docker/dockerfile:1
 ARG ALPINE_VERSION=3.22
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS go-runtime
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/cgit-runtime ./cmd/cgit-runtime
+
 FROM alpine:${ALPINE_VERSION}
 
 ARG SUPERCRONIC_VERSION=0.2.51
@@ -11,7 +19,6 @@ RUN apk add --no-cache \
         git \
         git-lfs \
         openssh-client \
-        python3 \
         restic \
         su-exec \
         tar \
@@ -22,10 +29,10 @@ RUN apk add --no-cache \
     && echo "${SUPERCRONIC_SHA256}  /usr/local/bin/supercronic" | sha256sum -c - \
     && chmod 0755 /usr/local/bin/supercronic
 
-COPY runtime/ /usr/local/lib/cgit-maintenance/
+COPY --from=go-runtime /out/cgit-runtime /usr/local/bin/cgit-runtime
 COPY docker-maintenance-entrypoint.sh /usr/local/bin/docker-maintenance-entrypoint.sh
-RUN chmod 0755 /usr/local/lib/cgit-maintenance/*.py \
-    /usr/local/bin/docker-maintenance-entrypoint.sh
+RUN ln -s cgit-runtime /usr/local/bin/cgit-jobs \
+    && chmod 0755 /usr/local/bin/docker-maintenance-entrypoint.sh
 
 VOLUME ["/job-state", "/job-work", "/backups"]
 ENTRYPOINT ["/usr/local/bin/docker-maintenance-entrypoint.sh"]

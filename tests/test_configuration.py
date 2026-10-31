@@ -6,8 +6,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "runtime"))
-from configure import configure
+import subprocess
+from contract_support import RUNTIME
+
+def configure(source_path, repos):
+    result = subprocess.run([RUNTIME, "configure", "--source", str(source_path), "--repos", repos],
+                            capture_output=True, timeout=30)
+    if result.returncode:
+        raise ValueError(result.stderr.decode(errors="replace"))
 
 
 class ConfigurationTests(unittest.TestCase):

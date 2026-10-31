@@ -22,6 +22,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
+RUNTIME = os.environ.get("CGIT_TEST_RUNTIME", str(ROOT / "bin/cgit-runtime"))
 USER, SECRET = "owner", "contract-fixture-secret"
 AUTH = "Basic " + base64.b64encode(f"{USER}:{SECRET}".encode()).decode()
 HELPER = f"!f() {{ echo username={USER}; echo password={SECRET}; }}; f"
@@ -56,7 +57,7 @@ def run(*args, cwd=None, env=None, check=True):
     result = subprocess.run(args, cwd=cwd, env=env or ENV, capture_output=True, timeout=90)
     if check and result.returncode:
         # This harness only has synthetic data; never print a full environment.
-        message = result.stderr.decode(errors="replace").replace(SECRET, "[fixture-secret]")
+        message = (result.stderr + result.stdout[-8000:]).decode(errors="replace").replace(SECRET, "[fixture-secret]")
         raise AssertionError(f"{args[0]} failed ({result.returncode}): {message}")
     return result
 
@@ -187,23 +188,24 @@ class Service:
             raise
 
     def _start_local(self, private, push):
-        gateway = command("CGIT_TEST_GATEWAY_COMMAND", [sys.executable, str(ROOT / "runtime/gateway.py")])
+        gateway = command("CGIT_TEST_GATEWAY_COMMAND", [RUNTIME, "gateway"])
         cgit = os.environ.get("CGIT_TEST_CGIT", "/does-not-exist")
         source = (ROOT / "config/cgitrc").read_text().replace("/repos", str(self.repos))
         source = source.replace("/var/cache/cgit", str(self.cache))
         conf = (ROOT / "config/lighttpd.conf").read_text()
         if self.driver == "lighttpd":
             runtime = self.root / "runtime"
-            shutil.copytree(ROOT / "runtime", runtime, ignore=shutil.ignore_patterns("__pycache__"))
-            filters = self.root / "filters"
-            shutil.copytree(os.environ["CGIT_TEST_FILTERS"], filters)
-            for file in [*runtime.glob("*.py"), *filters.rglob("*.py")]:
-                text = file.read_text().replace("#!/usr/bin/env python3", "#!" + sys.executable)
-                text = text.replace("/usr/local/lib/cgit/filters", str(filters))
-                text = text.replace("/var/cache/cgit", str(self.cache))
-                file.write_text(text)
-                file.chmod(0o755)
-            source = source.replace("/usr/local/lib/cgit-personal", str(runtime))
+            runtime.mkdir()
+            for name, sub in (("gateway.cgi", "gateway"), ("about-filter", "about-filter"),
+                              ("source-filter", "source-filter"), ("access-log", "access-log")):
+                wrapper = runtime / name
+                wrapper.write_text("#!/bin/sh\n" +
+                    f"export CGIT_RUNTIME_CONFIG={shlex.quote(str(self.settings))}\n" +
+                    f"export CGIT_ACCESS_LOG={shlex.quote(str(self.cache / 'access.log'))}\n" +
+                    f'export PATH={shlex.quote(ENV["PATH"])}\nexec {shlex.quote(RUNTIME)} {sub} "$@"\n')
+                wrapper.chmod(0o755)
+            source = source.replace("/usr/local/bin/about-filter", str(runtime / "about-filter"))
+            source = source.replace("/usr/local/bin/source-filter", str(runtime / "source-filter"))
             docroot = self.root / "htdocs"
             docroot.mkdir()
             for name in ("cgit.css", "cgit.js", "cgit.png", "favicon.ico", "robots.txt"):
@@ -211,13 +213,13 @@ class Service:
                 if candidate.exists():
                     shutil.copy(candidate, docroot / name)
             shutil.copy(ROOT / "config/custom.css", docroot)
-            (docroot / "gateway.cgi").symlink_to(runtime / "gateway.py")
+            (docroot / "gateway.cgi").symlink_to(runtime / "gateway.cgi")
             with socket.socket() as sock:
                 sock.bind(("127.0.0.1", 0))
                 port = sock.getsockname()[1]
             conf = conf.replace("server.port          = 8080", f'server.port = {port}\nserver.bind = "127.0.0.1"')
             conf = conf.replace("/var/www/htdocs/cgit", str(docroot)).replace("/var/cache/cgit", str(self.cache))
-            conf = conf.replace("/usr/local/lib/cgit-personal", str(runtime))
+            conf = conf.replace("/usr/local/bin/access-log", str(runtime / "access-log"))
             self.base = f"http://127.0.0.1:{port}"
         template = self.root / "cgitrc"
         template.write_text(source)
@@ -231,7 +233,7 @@ class Service:
         else:
             env.update(CGIT_USERNAME=USER, CGIT_PASSWORD_FILE=str(self.password),
                        CGIT_AUTH_MODE="private" if private else "public")
-        setup = command("CGIT_TEST_CONFIGURE_COMMAND", [sys.executable, str(ROOT / "runtime/configure.py")])
+        setup = command("CGIT_TEST_CONFIGURE_COMMAND", [RUNTIME, "configure"])
         run(*setup, "--source", str(template), "--repos", str(self.repos), "--lfs", str(self.lfs),
             "--cgit", cgit, env=env)
         if self.driver == "lighttpd":
@@ -296,7 +298,7 @@ class Service:
         self.ssh_private_keys = {}
         access_command = command(
             "CGIT_TEST_ACCESS_COMMAND",
-            [sys.executable, str(ROOT / "runtime/access.py")],
+            [RUNTIME, "access"],
         )
         self.access_command = access_command
         for user, secret in ACCESS_SECRETS.items():
@@ -329,8 +331,7 @@ class Service:
             wrapper.write_text(
                 "#!/bin/sh\n"
                 f"export CGIT_RUNTIME_CONFIG={shlex.quote(str(self.settings))}\n"
-                f"exec {shlex.quote(sys.executable)} "
-                f"{shlex.quote(str(ROOT / 'runtime/ssh_command.py'))} \"$@\"\n")
+                f"exec {shlex.quote(RUNTIME)} ssh \"$@\"\n")
             wrapper.chmod(0o755)
             self.ssh_command_path = str(wrapper)
         run(*access_command, "apply", "--directory", str(self.access_root),
