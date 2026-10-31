@@ -189,6 +189,18 @@ class JobsCliContract(unittest.TestCase):
         image = os.environ.get("CGIT_TEST_MAINTENANCE_IMAGE")
         self.assertTrue(image, "Docker contracts require CGIT_TEST_MAINTENANCE_IMAGE")
         self.write_access()
+        payload = b"encrypted recovery LFS fixture\n" * 128
+        oid = hashlib.sha256(payload).hexdigest()
+        pointer = ("version https://git-lfs.github.com/spec/v1\n"
+                   f"oid sha256:{oid}\nsize {len(payload)}\n")
+        (self.work / "asset.bin").write_text(pointer)
+        run("git", "add", "asset.bin", cwd=self.work)
+        run("git", "commit", "-m", "LFS recovery fixture", cwd=self.work)
+        run("git", "push", str(self.repo), "HEAD", cwd=self.work)
+        relative_object = Path("demo.git/objects") / oid[:2] / oid[2:4] / oid
+        object_file = self.lfs / relative_object
+        object_file.parent.mkdir(parents=True)
+        object_file.write_bytes(payload)
         password = self.root / "password"
         password.write_text("synthetic-encrypted-backup-secret\n")
         restored = self.root / "restored"
@@ -221,6 +233,8 @@ class JobsCliContract(unittest.TestCase):
         clone = self.root / "restored-client"
         run("git", "clone", str(restored / "repos/demo.git"), str(clone))
         self.assertEqual((clone / "README.md").read_text(), "# Jobs contract\n")
+        self.assertEqual((clone / "asset.bin").read_text(), pointer)
+        self.assertEqual((restored / "lfs" / relative_object).read_bytes(), payload)
         self.assertFalse((restored / "access/maintenance").exists())
         self.assertFalse((restored / "access/write.lock").exists())
 

@@ -1,5 +1,7 @@
 # 验证记录
 
+当前 Linux 证据见 [PROGRESS.md](PROGRESS.md) 的“Linux 兼容性与稳定性闭环”：Actions 41183388624 的 89 项完整测试和自动安全门禁通过。以下记录按当时的验证范围保留，不代表当前仍未执行。
+
 ## 2026-10-31：P3 Compose/TLS 契约已实现，未在 Linux 执行
 
 - 新增 `tests/contracts/test_compose.py`，从现有三份 Compose 文件启动 edge/cgit/ssh，使用 Caddy 内部 CA 作为测试信任根；不关闭客户端证书校验。

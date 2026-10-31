@@ -113,9 +113,9 @@
 | 阶段 | 状态 | 剩余证明 |
 |---|---|---|
 | P0 规划 | 用户已授权开始 | 后续重大范围变更继续说明 |
-| P1 契约/CI | 本地 native 通过，CI 待执行 | Linux 容器、远端 Actions 基线与运行反馈 |
-| P2 Python 权限/SSH/LFS | 全部入口 native 通过 | Linux 容器、Compose 与 Actions 上的同一矩阵 |
-| P3 Python 完整 Compose/任务/恢复 | 任务 CLI/恢复契约本地通过；Compose/TLS 已有黑盒用例 | Caddy TLS 实际执行、真实调度/restic、跨容器写栅栏、客户端恢复 |
+| P1 契约/CI | native 与 Linux Actions 通过 | 后续变更继续完整回归 |
+| P2 Python 权限/SSH/LFS | native、Linux 容器与 Compose 矩阵通过 | 生产环境与人工安全验收 |
+| P3 Python 完整 Compose/任务/恢复 | Linux Compose/TLS、真实 restic/隔离恢复/客户端克隆通过 | 实际定时调度、跨容器写栅栏与故障演练、人工安全项 |
 | P4 冻结参考 | 未完成 | 完整 Python 契约与 schema/产物 |
 | P5 Go 全量替换 | 未开始 | 各模块及双实现对比 |
 | P6 Go 完整验收 | 未开始 | 无 Python 运行依赖、完整 CI/安全/恢复 |
@@ -126,3 +126,21 @@
 ## 2026-10-31：GitHub Actions 首轮 Linux 反馈
 
 用户已授权推送独立测试分支 `work/python-p3-actions-20261031`。首轮 [Actions 41180469044](https://github.com/zopiya/cgit/actions/runs/41180469044) 的 Python protocol job 通过；容器构建在 Gitolite 安装步骤失败，尚未执行容器协议与 Compose。固定源码归档的 SHA-256 验证通过，但 `install` 的 `/usr/bin/perl` 解释器未安装在 fetch stage，shell 报 `./install: not found`。已为该阶段补充 Perl，等待下一轮 Linux 构建确认。没有发布镜像、更新 main 或部署。
+
+## 2026-10-31：Linux 兼容性与稳定性闭环
+
+[Actions 41183388624](https://github.com/zopiya/cgit/actions/runs/41183388624)（`43b3758`）通过：Python protocol、两个 Linux 镜像构建、89 项完整测试（无跳过）和自动安全门禁。安全报告 `automated_ok: true`、`test_report_complete: true`，保留 `complete: false`、`production_verified: false`。
+
+本轮按实际失败链修复：
+
+- Gitolite fetch stage 缺少 Perl、安装目录不存在；保留固定源码和摘要验证。
+- 宿主/容器路径混用、cgit 配置跨测试反复替换、命令结果类型错误；夹具显式映射临时目录，每次从基线恢复配置。
+- SSH forced command 与 git-shell 冲突、新建 Alpine 账户锁定、缺少认证隔离所需 SYS_CHROOT；只解锁新建服务身份，保留 publickey-only、逐密钥 forced command、禁 shell/转发和 cap_drop ALL。
+- SSH 使用独立健康检查，避免继承 Web HTTP 检查；容器重启后重新读取自动分配的宿主端口。等待有总超时并输出最后客户端错误。
+- Compose 明确传入插值变量、启用 SSH profile；Caddy 测试使用当前 UID/GID，避免留下无法清理的 root 文件。匿名列表断言与公开仓库 ACL 契约一致。
+- maintenance 镜像加入 CI；真实 restic 加密备份、隔离恢复、Git 克隆及恢复完整性校验通过。非 root 恢复挂载点不再要求父目录可写。
+- 失败保留 Compose 服务日志，子进程设置超时，构建使用独立缓存。合成凭据、服务与卷均隔离，不访问真实用户数据。
+
+本次绿色之后进一步给真实恢复用例加入非空 LFS 指针/对象和字节比对，随文档推送后须以新一轮结果验收。
+
+仍待完成：Supercronic 实际定时与重启补偿、跨容器写栅栏/故障恢复演练、浏览器恶意内容与资源压力测试、独立保管恢复密钥、真实公网 DNS/ACME、宿主网络/容量/漏洞扫描和升级回滚。CI 合成环境通过不代替这些验收；尚未合并 main、发布镜像或部署。

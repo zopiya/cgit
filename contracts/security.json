@@ -59,7 +59,7 @@
       "static": ["container_hardening"],
       "manual": [
         "Real Supercronic schedule and restart/catch-up behavior",
-        "Real encrypted restic repository, independent recovery key and isolated client clone",
+        "Independent recovery key custody and deployment-volume restore drill",
         "Cross-container write-fence and crash recovery drill"
       ]
     },

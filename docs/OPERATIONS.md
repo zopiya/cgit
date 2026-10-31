@@ -1,6 +1,6 @@
 # 个人维护说明
 
-默认结构仍可用单镜像、lighttpd、Python CGI 和 cgit。工作区另有候选的 `edge + web + ssh + maintenance` Compose 角色；新增路径已在本地 native 测试中跑过授权/SSH/LFS，但尚未在 Linux 容器或 NAS/VPS 上执行。
+默认结构仍可用单镜像、lighttpd、Python CGI 和 cgit。工作区另有候选的 `edge + web + ssh + maintenance` Compose 角色；新增路径已通过 native 和 Linux Actions 的授权/SSH/LFS、Compose/TLS 与真实加密恢复测试，尚未在 NAS/VPS 部署。
 本说明提供操作步骤，不代表已完成部署验收；不要同时启用未定义的旧 SSH 管理和容器 SSH 而不先确认端口、密钥与公网暴露范围。
 
 ## 使用边界
@@ -31,7 +31,7 @@ docker exec --user <PUID>:<PGID> cgit cgit-doctor --git --lfs
 
 ## access、SSH 与 maintenance 候选入口
 
-这些入口尚未完成 Linux Compose 验收，只作为当前实现的审查边界：
+以下入口已在隔离 Linux CI 验证；真实部署仍需按进度记录中的人工项验收：
 
 ```sh
 # Web + Gitolite ACL；SSH profile 需显式启用。
@@ -43,6 +43,8 @@ docker compose -f docker-compose.yml -f docker-compose.access.yml \
 ```
 
 `access/` 是 Gitolite 策略、编译快照、身份哈希、authorized_keys 和 LFS token key 的共享根。修改人员、公钥或公开范围必须走同一 apply 流程：进入 maintenance、编译、生成快照、再次查询验证，最后退出 maintenance。不要手工改 `identity.json` 或只替换某个挂载文件来绕过 generation 校验。
+
+SSH 角色使用专用健康检查，不能继承共享 Web 镜像的 HTTP 检查。OpenSSH 的认证隔离需要 `SYS_CHROOT`；其余能力仍按 Compose 的显式列表授予。新建服务账户使用 `/bin/sh` 执行已登记密钥的 forced command，并解除 Alpine 默认账户锁定；密码和交互登录继续由 sshd/forced command 拒绝。使用现有 UID 时，应核对对应账户的 shell 与锁定状态；入口不擅自解锁已有账户。
 
 SSH 只允许 Git upload/receive pack 和 `git-lfs-authenticate`；不支持交互 shell、scp/sftp、转发或管理命令。SSH 签发的是短期 HTTPS LFS token，LFS 数据仍走 Web，不是纯 SSH LFS transport。
 
