@@ -10,6 +10,8 @@
 
 当前工作区审计和未闭合风险见 [审计记录](docs/AUDIT-2026-10-31.md)，操作入口见 [维护说明](docs/OPERATIONS.md)。历史 Linux CI 与当前本地结果必须分开；当前尚未部署 NAS/VPS。当前生产 runtime 已替换为 Go，迁移边界与验收状态见 [Go runtime](docs/GO-RUNTIME.md)。
 
+Go 迁移已通过 [Linux Actions 41206062121](https://github.com/zopiya/cgit/actions/runs/41206062121)：41 项全部通过、无跳过，包含两份镜像无 Python 检查、Compose/TLS、SSH、Git/LFS 和真实加密恢复。自动测试通过不代表生产部署或全部人工安全门槛完成。
+
 ## 开始使用
 
 ```sh

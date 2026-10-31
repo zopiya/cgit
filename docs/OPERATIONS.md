@@ -1,4 +1,4 @@
-> 当前 Go 迁移与验证边界见 [GO-RUNTIME.md](GO-RUNTIME.md)。下文历史 Linux 结果仅对应旧 Python 提交。
+> 当前 Go 迁移与验证边界见 [GO-RUNTIME.md](GO-RUNTIME.md)。Go 已通过 [Linux Actions 41206062121](https://github.com/zopiya/cgit/actions/runs/41206062121) 的 41 项完整契约；旧 Python 记录仍按历史范围保留，尚未部署真实环境。
 
 # 个人维护说明
 

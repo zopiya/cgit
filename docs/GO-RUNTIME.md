@@ -1,6 +1,6 @@
 # Go runtime 迁移
 
-本轮将项目维护的生产运行逻辑迁移为一个 Go 二进制，源码位于 cmd/cgit-runtime 和 internal/runtime。生产构建定义与默认入口已移除 Python runtime、Python 过滤器和 Python fallback；最终镜像包库存仍待 Linux 验收。cgit/Git/Gitolite/OpenSSH/Caddy/Supercronic/restic 保留各自职责。Python 仅留在开发机和 CI，运行独立黑盒测试及证据门禁；它不进入 Web/SSH/maintenance 运行镜像。
+本轮将项目维护的生产运行逻辑迁移为一个 Go 二进制，源码位于 cmd/cgit-runtime 和 internal/runtime。生产构建定义与默认入口已移除 Python runtime、Python 过滤器和 Python fallback；两份运行镜像的无 Python 库存检查已在本次 Linux Actions 通过。cgit/Git/Gitolite/OpenSSH/Caddy/Supercronic/restic 保留各自职责。Python 仅留在开发机和 CI，运行独立黑盒测试及证据门禁；它不进入 Web/SSH/maintenance 运行镜像。
 
 ## 构建与入口
 
@@ -43,11 +43,16 @@ archive 只覆盖 repos/lfs。restic 默认覆盖 repos/lfs/access；主机密�
 
 `tests/contracts/test_go_runtime.py` 要求实际执行命名的 Go race 用例与 fuzz，Docker 契约额外检查两份运行镜像中没有 Python 包、可执行文件、旧目录或 .py fallback。scripts/test.py 报告记录生产源码摘要、Git revision 和宿主 Go 二进制 SHA-256；dirty 工作区摘要与提交 SHA 分开。镜像实际 ID 仍由独立 image smoke 报告记录。
 
-本机没有 Docker：交叉编译成功不能证明 Alpine 镜像、Compose/TLS、镜像包库存或 production 通过。CI 定义已经更新，未经授权不会推送或触发 Actions。最新执行结果追加到 VALIDATION/PROGRESS，历史审计中的结论以其当时源码为准。
+本机没有 Docker；后续经用户授权，已在 GitHub 托管 Linux runner 构建和验证两份镜像、Compose/TLS、SSH、恢复及包库存。当前证据见本文末尾及 VALIDATION/PROGRESS；历史审计中的结论以其当时源码为准。
 
 ## 回退边界
 
-本轮没有自动迁移真实持久数据。部署前先记录旧镜像 digest、配置、完整备份与恢复密码；回退需同时恢复兼容配置，不能只换镜像却保留新启动入口。Python 参考实现由 Git 历史 42b551d 保留，生产目录不保留隐藏 fallback。Go 当前尚未经本轮 Linux 容器验收，不能据此直接替换真实 NAS/VPS。
+本轮没有自动迁移真实持久数据。部署前先记录旧镜像 digest、配置、完整备份与恢复密码；回退需同时恢复兼容配置，不能只换镜像却保留新启动入口。Python 参考实现由 Git 历史 42b551d 保留，生产目录不保留隐藏 fallback。Go 已通过本轮 Linux 自动验收，真实 NAS/VPS 替换仍需独立备份、现场配置核对和部署授权。
 
 
-当前本地结果：41 项 native 契约/配置中 37 通过、4 项明确跳过，0 失败；Go race/fuzz、真实 restic 加密恢复、Linux/amd64 交叉编译通过。Goldmark 已升至 1.7.17 修复 GO-2026-5320，2026-10-31 govulncheck 重扫没有 findings；JSON 扫描额外门禁会拒绝漏洞发现及不完整报告。Docker/Compose、包库存与真实浏览器未验证，不宣称生产就绪。详情见 VALIDATION.md。
+当前本地结果：41 项 native 契约/配置中 37 通过、4 项明确跳过，0 失败；Go race/fuzz、真实 restic 加密恢复、Linux/amd64 交叉编译通过。Goldmark 已升至 1.7.17 修复 GO-2026-5320，2026-10-31 govulncheck 重扫没有 findings；JSON 扫描额外门禁会拒绝漏洞发现及不完整报告。随后 Linux Actions 已补齐 Docker/Compose、包库存和容器恢复验证；真实浏览器及生产环境仍未验证，不宣称生产就绪。详情见 VALIDATION.md。
+
+
+## 已完成的远端复验
+
+[Actions 41206062121](https://github.com/zopiya/cgit/actions/runs/41206062121) 对 Go 迁移提交 `41e0918` 完整通过：Linux 容器 41 项全部通过、无跳过，涵盖两份运行镜像无 Python、Compose/TLS、SSH/Git/LFS 和真实 restic 恢复；自动安全门禁通过。发布 job 跳过，未部署。安全报告仍为 complete:false、production_verified:false，详情及剩余人工项见 [验证记录](VALIDATION.md)。

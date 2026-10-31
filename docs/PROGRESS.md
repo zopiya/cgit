@@ -166,3 +166,25 @@
 本轮同时对齐 sync-in 的 LFS 实际仓库名（含 .git）路径、单账号写协调锁、apply 排空和 SSH 独立运行配置。没有搬动真实数据；旧错误 sync-in 目录需先备份和校验再人工迁入。HEAD 与 refs 跨步骤原子性、外部写入口停写、无 access 恢复验收、浏览器/资源压力/跨容器故障仍不能宣称闭合。
 
 CI 已改用 Go 构建/漏洞扫描和原独立协议契约，要求真实 restic 与无 skip 的 Go 回归；未推送执行。未构建运行本轮 Docker/Compose、未操作 NAS/VPS、未提交或部署。此前 Python 的 94 项、历史 Linux 89 项不能代替本轮 Go 验收。
+
+
+## Go Linux Actions 验收（2026-10-31）
+
+用户授权提交、推送并在 GitHub Actions 测试。Go 迁移提交为 `41e091827741ed16b2d6f05fe3117f3775049827`；此前登录及审计的三笔提交也已推送到 `work/python-p3-actions-20261031`。本次 [Actions 41206062121](https://github.com/zopiya/cgit/actions/runs/41206062121) 最终 `completed / success`，两个测试 job 成功，发布 job 按条件跳过，没有发布镜像或部署。
+
+下载原始产物至忽略目录 `artifacts/actions-41206062121/` 后核对：
+
+| 证据 | 实际结果 |
+|---|---|
+| container.json | 41 项全部 passed，0 failure/error/skip；ok:true、complete:true；source_revision 与上述提交一致 |
+| 两份 Linux/amd64 镜像 | Web 和 maintenance 构建成功，空仓库启动/健康检查通过；无 Python 可执行文件、包、旧 runtime 目录及 .py fallback 的容器检查通过 |
+| Compose/TLS、SSH、Git/LFS | HTTPS clone/push、安全头、后端端口隔离、SSH 端口/重启及主机密钥、权限/撤权、LFS 真实客户端契约通过 |
+| 加密恢复 | Linux maintenance 镜像中真实 restic 备份、非 root 隔离恢复、Git clone、非空 LFS 字节比对通过 |
+| Go 回归与漏洞 | 命名 race 回归及路径 fuzz 实际执行，真实 Go restic 回归无跳过；govulncheck 门禁 ok:true、findings:[] |
+| 安全与秘密 | security.json 的 automated_ok:true，G1–G8 自动项通过；secrets.json 为 [] |
+
+Web 测试镜像本地 ID：`sha256:7ecbecd6781ad5d9586d75255f488c89c15285a03b6621d7beea48af547a9762`，不是已发布 registry digest。CGI 协议阶段仍是部分证据（complete:false），没有与 Linux 报告拼接为完整通过。
+
+`container.complete:true` 仅表示该 Linux 自动测试层完整。`security.complete:false`、`production_verified:false` 仍然保留：真实浏览器、DNS/ACME、宿主隔离与容量、OS/镜像漏洞扫描、调度与重启补偿、跨容器故障、独立恢复密钥保管及部署回滚尚未据此验收。不得把本次绿色等同于 NAS/VPS 已部署或完整生产安全验收。
+
+本条随后以仅文档的 `[skip ci]` 提交记录；该记录提交不改变已测试运行代码和配置。没有合并 main、强制推送或操作真实仓库。
