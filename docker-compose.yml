@@ -2,7 +2,6 @@ services:
   cgit:
     build: .
     image: ghcr.io/zopiya/cgit:latest
-    container_name: cgit
     restart: unless-stopped
     environment:
       PUID: "${PUID:-1000}"
@@ -22,7 +21,7 @@ services:
       - ./coordination:/coordination
       - ./lfs:/lfs
     ports:
-      - "8080:8080"
+      - "${CGIT_HTTP_BIND:-0.0.0.0}:${CGIT_HTTP_PORT:-8080}:8080"
 
     cap_drop:
       - ALL

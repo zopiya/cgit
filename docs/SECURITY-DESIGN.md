@@ -1,8 +1,8 @@
+> 本文保留安全设计要求与 G1–G8 定义；不是部署操作入口或当前验收状态。使用指南从 [README](../README.md) 进入，当前限制见 [VALIDATION](VALIDATION.md)。
+
 # 一体化 cgit 安全设计与验收要求
 
-日期：2026-10-31。状态：候选实现已写入工作区，Linux/部署安全验收未完成；配套 [完整方案](PLAN.md)。
-
-实施路线为先 Python 验证、再 Go 全量交付，见 [Runtime/CI 计划](RUNTIME-MIGRATION-AND-CI.md)。本文件要求适用于两个实现；不能因为 Python 参考通过就认定 Go 已安全，反之亦然。
+当前实现是 Go runtime。安全控制定义用于后续持续验收；实际 Linux 自动结果与生产人工缺口见 [VALIDATION.md](VALIDATION.md)。
 
 目标是个人公网托管、私有仓库与少量协作，以及定时同步/备份所需的可验证防护。不承诺绝对安全，不用 HTTPS、容器或语言选择替代授权、恢复和运行验收。本轮没有做完整渗透测试、CVE 扫描或真实部署检查。
 
@@ -16,20 +16,20 @@
 
 本文是实施要求，不是已发现漏洞的评级清单或安全认证。具体组件支持期和漏洞状态在构建/发布时重新核对。
 
-## 2. 当前防护与缺口
+## 2. 实现与证据入口
 
-| 当前可观察的防护 | 证据与边界 |
+| 防护 | 代码入口 |
 |---|---|
-| 单账号认证、写入默认关闭、坏配置拒绝启动 | runtime/configure.py、gateway.py |
-| 路径、目录穿越和符号链接检查 | runtime/common.py、gateway.py；不等于已证明没有路径竞争窗口 |
-| LFS 大小/SHA-256、临时文件、原子替换/fsync | gateway.py；不替代备份或各层资源上限 |
-| README 清理、主动 HTML 提供关闭、LFS 响应限制 | about_filter.py、cgitrc、gateway.py；仍需浏览器验收 |
-| 动态缓存关闭/no-store、访问日志轮转 | configure.py、lighttpd.conf、access_log.py；不代表代理/Docker 日志已验收 |
-| secrets/数据不进入常规 Git/构建上下文 | .gitignore、.dockerignore；不能证明不存在历史泄漏或显式强制加入 |
-| 逐人逐库 ACL、容器 SSH、短期 LFS 凭证 | runtime/access.py、gateway.py、ssh_command.py、lfs_token.py；已在本地 native 黑盒测试中覆盖，Linux Compose 未执行 |
-| Caddy edge 与独立 maintenance 任务 | docker-compose.public.yml、Caddyfile、runtime/jobs.py；已有黑盒用例/CLI 契约，真实 TLS、调度和 restic 未执行 |
+| 配置失败关闭、路径与仓库约定 | internal/runtime/configure.go、core.go |
+| HTTP/Git/LFS 认证、上传校验、缓存隔离 | internal/runtime/gateway.go、config/lighttpd.conf |
+| 人员/公钥/Gitolite 快照与短期 token | internal/runtime/access.go |
+| SSH forced command 与受限服务 | internal/runtime/ssh.go、config/sshd_config |
+| Markdown 清理与有界过滤器/日志 | internal/runtime/filters.go、highlight.go |
+| 任务、写入协调与 restic 恢复 | internal/runtime/jobs.go |
+| 入口/角色隔离 | docker-compose*.yml、config/Caddyfile |
+| 秘密与构建边界 | .gitignore、.dockerignore、CI workflow |
 
-这些是工作区候选实现，不是安全认证。Linux 容器权限矩阵、Caddy 实际证书链、真实调度/restic、宿主网络隔离与完整 S01–S08/G1–G8 证据仍未验收，不能据此宣称可安全公网部署。
+代码入口可用于追踪，不等于所有压力/故障场景已测。Linux 自动验收和真实部署分层记录，不能以语言选择、HTTPS 或容器替代生产验证。
 
 ## 3. 安全控制与对应验收
 
@@ -146,4 +146,4 @@
 - [Git 配置](https://git-scm.com/docs/git-config)：对象校验和运行/协议设置，按目标版本检查。
 - [Gitolite 更新授权](https://gitolite.com/gitolite/conf-2)、[Git LFS 认证](https://github.com/git-lfs/git-lfs/blob/main/docs/api/authentication.md)。
 
-当前 Python 使用标准库 CGI/子进程，没有 Django/Flask/FastAPI；安全最佳实践技能没有直接对应这个栈的参考文件，不能假装套用框架已完成保护。要求依据现有代码路径和官方接口，实施时再针对性审查和验证。
+当前生产 runtime 使用 Go CGI/子进程；本文是安全设计要求，不代表全部部署人工门槛已通过。实际结果与未闭合项见 [验收记录](VALIDATION.md)。

@@ -77,6 +77,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - name: Validate documented Compose combinations (no services started)
+        run: python3 scripts/check_compose.py
       - name: Install the real recovery test client
         run: |
           sudo apt-get update

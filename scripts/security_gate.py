@@ -169,7 +169,7 @@ def check_backend_port_isolation(root):
 def check_container_hardening(root):
     files = [
         "docker-compose.yml", "docker-compose.access.yml",
-        "docker-compose.public.yml",
+        "docker-compose.public.yml", "docker-compose.maintenance.yml",
     ]
     configuration = "\n".join(text(root / name) for name in files)
     forbidden = {

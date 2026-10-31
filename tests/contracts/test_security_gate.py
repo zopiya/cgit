@@ -185,6 +185,7 @@ class SecurityGateContract(unittest.TestCase):
             "docker-compose.yml",
             "docker-compose.access.yml",
             "docker-compose.public.yml",
+            "docker-compose.maintenance.yml",
             "contracts/runtime.json",
         )
         for name in files:

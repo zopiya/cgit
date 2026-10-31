@@ -1,0 +1,7 @@
+{
+  "owner": {
+    "enabled": true,
+    "owner": true,
+    "keys": ["SHA256:REPLACE_WITH_YOUR_PUBLIC_KEY_FINGERPRINT"]
+  }
+}

@@ -1,0 +1,2 @@
+# Container paths; do not replace with host paths.
+%RC = (GL_REPO_BASE => '/repos', UMASK => 0022);

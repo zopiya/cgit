@@ -27,3 +27,6 @@ scripts
 bin
 
 coordination/
+
+# Local task definitions/scripts (tracked template: jobs.example.json).
+jobs/
