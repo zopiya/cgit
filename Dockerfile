@@ -56,7 +56,7 @@ ARG GIT_SHA256
 ARG GITOLITE_VERSION
 ARG GITOLITE_SHA256
 
-RUN apk add --no-cache curl tar xz git
+RUN apk add --no-cache curl tar xz git perl
 
 # --retry-all-errors casts a wider net than the default retryable status
 # codes (catches odd transient responses, not just 5xx/408/429); -f makes

@@ -122,3 +122,7 @@
 | P7 交付/试点 | 未开始 | 最终产物/文档/授权部署与实际验收 |
 
 每次更新以新命令/实际产物为证据；不要把计划、代码存在、静态检查或历史通过记录升级为更高层验收。
+
+## 2026-10-31：GitHub Actions 首轮 Linux 反馈
+
+用户已授权推送独立测试分支 `work/python-p3-actions-20261031`。首轮 [Actions 41180469044](https://github.com/zopiya/cgit/actions/runs/41180469044) 的 Python protocol job 通过；容器构建在 Gitolite 安装步骤失败，尚未执行容器协议与 Compose。固定源码归档的 SHA-256 验证通过，但 `install` 的 `/usr/bin/perl` 解释器未安装在 fetch stage，shell 报 `./install: not found`。已为该阶段补充 Perl，等待下一轮 Linux 构建确认。没有发布镜像、更新 main 或部署。
