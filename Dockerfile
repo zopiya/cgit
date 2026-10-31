@@ -113,6 +113,7 @@ RUN curl ${CURL_FLAGS} \
     && echo "${GITOLITE_SHA256}  gitolite.tar.gz" | sha256sum -c - \
     && tar -xzf gitolite.tar.gz \
     && cd "gitolite-${GITOLITE_VERSION}" \
+    && mkdir -p /out/gitolite \
     && ./install -to /out/gitolite
 
 ########################################
