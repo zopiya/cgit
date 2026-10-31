@@ -6,6 +6,19 @@
 
 ## 最近一次完整 Linux 验收
 
+本轮文档与 Compose 整理提交 `3322a51f1ce0219a9c76dcb7a24cc762e8231144` 已在 [Actions 41208433154](https://github.com/zopiya/cgit/actions/runs/41208433154) 通过（2026-10-31）。协议基线与 Linux 容器两项 job 成功，发布 job 跳过，没有发布或部署。
+
+- 新增的 9 组 Compose 配置合并检查和独立项目/HTTP/SSH 绑定检查全部通过；这证明配置可解析及预期字段正确，不等于所有组合均启动验收。
+- 完整 Linux 容器契约 41 项全部 passed，0 failure/error/skip，complete:true；报告 source_revision 与上述提交一致。
+- 两镜像构建、实际 Web/Git/LFS/SSH、Compose/TLS、真实 restic 恢复和自动安全门禁通过；security 仍为 complete:false、production_verified:false，secrets.json=[]。
+- 测试 Web 镜像 ID 与下方迁移验收相同；本轮未改应用镜像内容，改变的是 Compose/文档和测试门禁。
+
+已下载核对测试/安全/镜像报告，位于本地忽略目录 `artifacts/actions-41208433154/`，并保存 CI 配置检查日志。本机未安装或运行 Docker 环境。
+
+本节结果随后由仅文档的 `[skip ci]` 提交记录，不改变已测代码/配置。生产人工缺口仍见文末。
+
+## Go 迁移首次完整 Linux 验收
+
 2026-10-31，[Actions 41206062121](https://github.com/zopiya/cgit/actions/runs/41206062121)，代码提交 `41e091827741ed16b2d6f05fe3117f3775049827`。两个测试 job 成功，发布 job 跳过，未部署。
 
 下载核对过的产物保存在本地忽略目录 `artifacts/actions-41206062121/`；CI artifact 有保留期限，长期追溯应安全保存报告。Git 中保留以下摘要：
@@ -32,11 +45,11 @@ Goldmark 初次扫描发现 GO-2026-5320 后已升级到 1.7.17，重扫无 find
 
 本轮简化 README，重组搭建、配置、使用、access、维护和开发文档，移除被替代的计划/阶段流水。Compose 取消固定容器名，HTTP/SSH 支持绑定地址和端口，maintenance 拆为独立覆盖文件。新用法与旧部署命令变化见 [CONFIGURATION.md](CONFIGURATION.md)。
 
-上述完整 Actions **没有覆盖本轮 Compose 改动**。本轮本地重新执行 native 契约：41 项中 37 passed，0 failure/error，4 明确跳过（两项 Compose、两镜像无 Python 库存、Linux maintenance 恢复），complete:false；报告 `artifacts/docs-native.json`。其中 Go race/fuzz、实际 Web/SSH/Git/LFS 与本地真实 restic 内部回归执行通过，不代替容器层。
+推送前本轮本地重新执行 native 契约：41 项中 37 passed，0 failure/error，4 明确跳过（两项 Compose、两镜像无 Python 库存、Linux maintenance 恢复），complete:false；报告 `artifacts/docs-native.json`。其中 Go race/fuzz、实际 Web/SSH/Git/LFS 与本地真实 restic 内部回归执行通过，不代替容器层。
 
 新增示例在临时目录用合成公钥实际执行 access apply，生成两库策略、快照、授权与 token key，成功退出维护；jobs.example.json 校验通过。5 份 Compose 的 YAML 语法、Actionlint、ShellCheck、Python 编译、文档本地链接与 diff 检查通过。安全门禁 6 项定向回归通过。
 
-按用户要求，本机不安装/运行 Docker 环境；临时 Compose CLI 下载中止且清理，未安装或执行。9 组真实 Compose 合并及自定义端口检查已加入 `scripts/check_compose.py` 和 Linux CI，但本轮尚未推送执行。当前结果不能证明新组合已在容器中运行。
+按用户要求，本机不安装/运行 Docker 环境；临时 Compose CLI 下载中止且清理，未安装或执行。9 组真实 Compose 合并及自定义端口检查已加入 `scripts/check_compose.py`，随后在 Linux Actions 通过，结果见本文顶部。基础 + maintenance 等新增组合的实际调度/重启运行仍需部署演练，不能把 config 检查当成运行证据。
 
 ## 部署前仍需验证/决定
 

@@ -44,4 +44,4 @@ git clone http://主机地址:8080/demo
 - [开发与验证](docs/DEVELOPMENT.md)：Go 构建、测试、CI 和实现入口。
 - [验收与已知限制](docs/VALIDATION.md)：可追溯测试结果和部署前待验事项。
 
-当前 Go 实现已通过 [Linux Actions](https://github.com/zopiya/cgit/actions/runs/41206062121) 的 41 项测试，无跳过。该结果对应提交 `41e0918`；后续配置变更须重新验证，不能视为真实 NAS/VPS 部署验收。
+当前版本已通过 [Linux Actions](https://github.com/zopiya/cgit/actions/runs/41208433154)：41 项完整容器测试无跳过，9 组 Compose 配置及自定义端口检查通过，测试提交 `3322a51`。自动验收不代表真实 NAS/VPS 部署完成，详细范围见验收记录。
