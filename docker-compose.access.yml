@@ -16,6 +16,13 @@ services:
     image: ghcr.io/zopiya/cgit:latest
     profiles: ["ssh"]
     entrypoint: ["/usr/local/bin/docker-ssh-entrypoint.sh"]
+    # The shared image's HTTP healthcheck belongs to the Web role only.
+    healthcheck:
+      test: ["CMD", "/usr/sbin/sshd", "-t", "-f", "/run/cgit-ssh/sshd_config"]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
     restart: unless-stopped
     environment:
       PUID: "${PUID:-1000}"

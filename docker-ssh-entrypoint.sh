@@ -19,6 +19,10 @@ if [ "$(id -u)" = "0" ]; then
         adduser -D -H -h "$ACCESS_ROOT" -u "$PUID" -G "$group_name" \
             -s /bin/sh git
         user_name=git
+        # Alpine creates locked accounts; OpenSSH rejects their public keys too.
+        # Only unlock this newly-created service identity. Password auth remains
+        # disabled by sshd and every registered key has a forced command.
+        passwd -u "$user_name"
     fi
 
     if [ ! -f /ssh-host-keys/ssh_host_ed25519_key ]; then
