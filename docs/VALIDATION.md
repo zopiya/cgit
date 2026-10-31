@@ -1,6 +1,6 @@
 # 验证记录
 
-当前 Linux 证据见 [PROGRESS.md](PROGRESS.md) 的“Linux 兼容性与稳定性闭环”：Actions 41183388624 的 89 项完整测试和自动安全门禁通过。以下记录按当时的验证范围保留，不代表当前仍未执行。
+当前 Linux 证据见 [PROGRESS.md](PROGRESS.md) 的“Linux 兼容性与稳定性闭环”：[Actions 41183772500](https://github.com/zopiya/cgit/actions/runs/41183772500) 的 89 项完整测试和自动安全门禁通过，含真实加密备份、非空 LFS 对象恢复和客户端克隆。以下记录按当时的验证范围保留，不代表当前仍未执行。
 
 ## 2026-10-31：P3 Compose/TLS 契约已实现，未在 Linux 执行
 
