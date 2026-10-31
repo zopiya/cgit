@@ -19,6 +19,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "runtime"))
 
+from common import RequestError
 from access import hash_secret, publish_snapshot
 import jobs
 
@@ -272,6 +273,46 @@ class JobsTests(unittest.TestCase):
         with self.assertRaises(jobs.JobError):
             jobs.run_job(self.ctx, sync_job)
 
+    def test_sync_with_real_lfs_client(self):
+        payload = b"real LFS sync bytes"
+        oid = hashlib.sha256(payload).hexdigest()
+        (self.work / "asset.bin").write_text(
+            f"version https://git-lfs.github.com/spec/v1\noid sha256:{oid}\nsize {len(payload)}\n")
+        git("add", "asset.bin", cwd=self.work)
+        git("-c", "user.name=Fixture", "-c", "user.email=fixture@localhost",
+            "commit", "-m", "LFS pointer", cwd=self.work)
+        source = self.root / "real-lfs.git"
+        git("clone", "--bare", str(self.work), str(source))
+        obj = source / "lfs/objects" / oid[:2] / oid[2:4] / oid
+        obj.parent.mkdir(parents=True)
+        obj.write_bytes(payload)
+        result = jobs.run_job(self.ctx, self.job(
+            "sync-in", source=str(source), repository="demo", lfs=True))
+        self.assertEqual(result["summary"]["lfs_objects"], 1)
+        self.assertEqual((self.lfs / "demo/objects" / oid[:2] / oid[2:4] / oid).read_bytes(), payload)
+
+    def test_sync_rejects_committed_lfsconfig_without_checkout(self):
+        (self.work / ".lfsconfig").write_text("[lfs]\nurl = http://127.0.0.1:1/untrusted\n")
+        git("add", ".lfsconfig", cwd=self.work)
+        git("-c", "user.name=Fixture", "-c", "user.email=fixture@localhost",
+            "commit", "-m", "Untrusted LFS endpoint", cwd=self.work)
+        source = self.root / "untrusted.git"
+        git("clone", "--bare", str(self.work), str(source))
+        old = git("--git-dir", str(self.repo), "rev-parse", "HEAD").stdout
+        with self.assertRaisesRegex(jobs.JobError, "lfsconfig"):
+            jobs.run_job(self.ctx, self.job(
+                "sync-in", source=str(source), repository="demo", lfs=True))
+        self.assertEqual(git("--git-dir", str(self.repo), "rev-parse", "HEAD").stdout, old)
+
+    def test_sync_rejects_symlink_parent(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        shutil.copytree(self.repo, outside / "demo.git")
+        (self.repos / "group").symlink_to(outside, target_is_directory=True)
+        with self.assertRaises((jobs.JobError, RequestError)):
+            jobs.run_job(self.ctx, self.job(
+                "sync-in", source=str(self.repo), repository="group/demo", lfs=False))
+
     def test_sync_in_copies_verified_lfs_objects_before_refs(self):
         source = self.root / "lfs-source.git"
         git("init", "--bare", "-b", "main", str(source))
@@ -279,6 +320,9 @@ class JobsTests(unittest.TestCase):
         git("push", "lfs-sync", "HEAD", cwd=self.work)
         payload = b"synthetic remote LFS object"
         oid = hashlib.sha256(payload).hexdigest()
+        stored = self.lfs / "demo/objects" / oid[:2] / oid[2:4] / oid
+        stored.parent.mkdir(parents=True)
+        stored.write_bytes(b"x" * len(payload))
         real_git = shutil.which("git")
         bin_dir = self.root / "lfs-bin"
         bin_dir.mkdir()
@@ -294,7 +338,7 @@ class JobsTests(unittest.TestCase):
             f"      printf '%s' {shlex.quote(payload.decode())} > \"$obj\"\n"
             "      ;;\n"
             "    ls-files)\n"
-            f"      printf '%s\\n' '[{{\"oid\":\"{oid}\",\"size\":{len(payload)}}}]'\n"
+            f"      printf '%s\\n' '{{\"files\":[{{\"oid\":\"{oid}\",\"size\":{len(payload)}}}]}}'\n"
             "      ;;\n"
             "    *) exit 1 ;;\n"
             "  esac\n"

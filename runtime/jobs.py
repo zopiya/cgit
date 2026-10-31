@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 
 from access import canonical as access_canonical
 from access import validate_users as validate_access_users
-from common import digest_file
+from common import digest_file, safe_path
 
 JOB_ID = re.compile(r"[a-z][a-z0-9._-]{0,63}\Z")
 OID = re.compile(r"[a-f0-9]{40}|[a-f0-9]{64}\Z")
@@ -398,7 +398,7 @@ def run_sync_in(ctx, job, deadline):
     logical = job["repository"].strip("/")
     if not ACCESS_REPO.fullmatch(logical):
         raise JobError("Invalid sync source or repository")
-    repo = ctx.root["repos"] / f"{logical}.git"
+    repo = safe_path(ctx.root["repos"], f"{logical}.git")
     if repo.is_symlink() or not repo.is_dir() or not (repo / "HEAD").is_file():
         raise JobError("Target bare repository is unavailable")
     timeout = max(1, int(deadline - time.monotonic()))
@@ -451,14 +451,21 @@ def run_sync_in(ctx, job, deadline):
         if job.get("lfs", True):
             command(["git", "clone", "--no-checkout", source, str(work)],
                     timeout=max(1, int(deadline - time.monotonic())), env=env)
-            if (work / ".lfsconfig").exists():
+            if command(["git", "-C", str(work), "ls-tree", "--name-only", "HEAD",
+                        "--", ".lfsconfig"],
+                       timeout=max(1, int(deadline - time.monotonic())), env=env).stdout.strip():
                 raise JobError("Remote .lfsconfig is not accepted")
             command(["git", "-C", str(work), "lfs", "fetch", "--all", "origin"],
                     timeout=max(1, int(deadline - time.monotonic())), env=env)
             listed = command(["git", "-C", str(work), "lfs", "ls-files",
                               "--all", "--json"],
                              timeout=max(1, int(deadline - time.monotonic())), env=env)
-            entries = json.loads(listed.stdout or b"[]")
+            inventory = json.loads(listed.stdout)
+            if not isinstance(inventory, dict) or set(inventory) != {"files"}:
+                raise JobError("Invalid remote LFS inventory envelope")
+            entries = inventory["files"] or []
+            if not isinstance(entries, list) or any(not isinstance(item, dict) for item in entries):
+                raise JobError("Invalid remote LFS inventory")
             seen = set()
             for item in entries:
                 oid, size = item.get("oid"), item.get("size")
@@ -472,9 +479,10 @@ def run_sync_in(ctx, job, deadline):
                 fetched_objects.append((oid, size, source_object))
         with write_fence(ctx.access, job["id"], max(1, int(deadline - time.monotonic()))):
             for oid, size, source_object in fetched_objects:
-                destination = ctx.root["lfs"] / logical / "objects" / oid[:2] / oid[2:4] / oid
+                destination = safe_path(ctx.root["lfs"], f"{logical}/objects/{oid[:2]}/{oid[2:4]}/{oid}")
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                if destination.is_file() and destination.stat().st_size == size:
+                if (destination.is_file() and destination.stat().st_size == size
+                        and digest_file(destination) == oid):
                     continue
                 temporary = destination.with_name(f".upload-{os.getpid()}-{oid}")
                 digest = hashlib.sha256()
