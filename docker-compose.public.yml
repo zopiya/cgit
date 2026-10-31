@@ -1,0 +1,35 @@
+# Public HTTPS edge. Combine with docker-compose.yml and
+# docker-compose.access.yml. The Web backend is removed from host-published
+# ports and is reachable only through Caddy.
+services:
+  cgit:
+    ports: !reset []
+    environment:
+      CGIT_BASE_URL: "https://${CGIT_DOMAIN:?set CGIT_DOMAIN}"
+
+  edge:
+    image: caddy:2.10.2-alpine@sha256:d8c17a862962def15cde69863a3a463f25a2664942eafd7bdbf050e9c3116b83
+    restart: unless-stopped
+    environment:
+      CGIT_DOMAIN: "${CGIT_DOMAIN:?set CGIT_DOMAIN}"
+      CGIT_ACME_EMAIL: "${CGIT_ACME_EMAIL:?set CGIT_ACME_EMAIL}"
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-data:/data
+      - ./caddy-config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    depends_on:
+      - cgit
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true

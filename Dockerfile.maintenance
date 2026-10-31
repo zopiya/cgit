@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+ARG ALPINE_VERSION=3.22
+FROM alpine:${ALPINE_VERSION}
+
+ARG SUPERCRONIC_VERSION=0.2.51
+ARG SUPERCRONIC_SHA256=cc232108374e8e2b537045f2d5eaa1229f619db314c3ba6a14d38b35dc0aa123
+
+RUN apk add --no-cache \
+        ca-certificates \
+        curl \
+        git \
+        git-lfs \
+        openssh-client \
+        python3 \
+        restic \
+        su-exec \
+        tar \
+        tzdata \
+    && curl -fsSL \
+        "https://github.com/aptible/supercronic/releases/download/v${SUPERCRONIC_VERSION}/supercronic-linux-amd64" \
+        -o /usr/local/bin/supercronic \
+    && echo "${SUPERCRONIC_SHA256}  /usr/local/bin/supercronic" | sha256sum -c - \
+    && chmod 0755 /usr/local/bin/supercronic
+
+COPY runtime/ /usr/local/lib/cgit-maintenance/
+COPY docker-maintenance-entrypoint.sh /usr/local/bin/docker-maintenance-entrypoint.sh
+RUN chmod 0755 /usr/local/lib/cgit-maintenance/*.py \
+    /usr/local/bin/docker-maintenance-entrypoint.sh
+
+VOLUME ["/job-state", "/job-work", "/backups"]
+ENTRYPOINT ["/usr/local/bin/docker-maintenance-entrypoint.sh"]

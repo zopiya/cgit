@@ -1,5 +1,7 @@
 # 个人 cgit 功能完善计划
 
+> 本文记录此前单账号 Git/LFS 实施；后续一体化与 Go 迁移以 [PLAN.md](PLAN.md) 和 [PROGRESS.md](PROGRESS.md) 为准。下文“不增加团队权限/CI 调度”不再代表当前已授权目标。
+
 实施状态：下列工作项已落地；本地真实服务测试通过。容器与视觉验收边界见 [VALIDATION.md](VALIDATION.md)。
 
 范围：个人使用、linux/amd64；不增加 ARM64、团队权限、PR/Issue、CI 调度或文件锁。

@@ -8,7 +8,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-from common import RequestError, config, digest_file, git, object_path, pointer, repository
+from access import Access
+from common import RequestError, config, digest_file, git, object_path, pointer, repo_ignored, repository
 
 
 def main():
@@ -22,9 +23,20 @@ def main():
     for label in ("repos", "lfs"):
         if not Path(cfg[label]).is_dir() or not os.access(cfg[label], os.R_OK | os.X_OK):
             findings.append(f"{label}: directory missing or unreadable")
-    if cfg["password_file"] and not os.access(cfg["password_file"], os.R_OK):
+    if cfg["auth_mode"] == "access":
+        try:
+            Access(cfg)
+        except RequestError as exc:
+            findings.append(f"access: {exc.message}")
+        else:
+            root = Path(cfg["access"]["root"])
+            for path, label in ((root / "ssh/authorized_keys", "SSH authorized keys"),
+                                (root / "lfs-token.key", "LFS token key")):
+                if not path.is_file():
+                    findings.append(f"access: {label} missing")
+    elif cfg["password_file"] and not os.access(cfg["password_file"], os.R_OK):
         findings.append("password file unreadable by runtime user")
-    if cfg["username"] and not os.access(cfg["lfs"], os.W_OK):
+    if (cfg["username"] or cfg["auth_mode"] == "access") and not os.access(cfg["lfs"], os.W_OK):
         findings.append("LFS store is not writable")
     # Stop descending once a bare repo is found; avoid following symlinks.
     for directory, dirs, files in os.walk(cfg["repos"], followlinks=False):
@@ -34,12 +46,17 @@ def main():
         dirs[:] = []
         name = str(Path(directory).relative_to(cfg["repos"]))
         try:
-            repo, name = repository(cfg, name)
+            # Integrity is independent of whether a repository is published.
+            repo, name = repository(cfg, name, serving=False)
         except RequestError:
             continue
         repos.append(name)
-        if cfg["http_push"] and not os.access(repo, os.W_OK):
-            findings.append(f"{name}: HTTP push enabled but repository is not writable")
+        try:
+            repo_ignored(repo)
+        except ValueError as exc:
+            findings.append(f"{name}: {exc}")
+        if (cfg["http_push"] or cfg.get("ssh_push")) and not os.access(repo, os.W_OK):
+            findings.append(f"{name}: Git write service enabled but repository is not writable")
         if args.git:
             result = git(repo, "fsck", "--full", check=False)
             if result.returncode:

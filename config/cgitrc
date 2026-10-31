@@ -26,13 +26,16 @@ virtual-root=/
 clone-url=http://$HTTP_HOST/$CGIT_REPO_URL
 
 cache-root=/var/cache/cgit
-cache-size=1000
+# configure.py also enforces this in the generated runtime config: LFS object
+# availability can change even when the Git commit has not changed.
+cache-size=0
 
 enable-index-links=1
 enable-index-owner=1
 enable-commit-graph=1
-enable-log-filecount=1
-enable-log-linecount=1
+# Keep log pages focused on history; detailed changes remain in commit/diff.
+enable-log-filecount=0
+enable-log-linecount=0
 enable-blame=1
 enable-html-serving=0
 enable-follow-links=1
@@ -67,9 +70,8 @@ about-filter=/usr/local/lib/cgit-personal/about_filter.py
 # Syntax-highlighted source in the tree/blob view.
 source-filter=/usr/local/lib/cgit-personal/source_filter.py
 
-# Per-repo commit-activity chart (the "stats" tab). No extra flag needed —
-# unset means disabled, any of week/month/quarter/year enables it.
-max-stats=month
+# Activity statistics are disabled by default. Opt in on an individual repo
+# with `git config cgit.max-stats month` if the chart is useful.
 
 # Cross-links a submodule entry in a tree listing to its own repo page —
 # *if* that submodule is also hosted on this same cgit instance. The
@@ -87,7 +89,8 @@ module-link=/%s/commit/?id=%s
 # scan-path — has no visible effect on the current flat /repos/*.git
 # layout, but takes effect for free the moment repos get organized into
 # category subdirectories (e.g. /repos/gitops/foo.git -> section
-# "gitops"). A per-repo gitweb.category (below) overrides this.
+# "gitops"). In v1.3.1 this directory grouping overrides gitweb.category
+# for nested repos; a bare repo's cgitrc `section=` is applied afterwards.
 section-from-path=1
 
 # Strip a trailing ".git" from discovered repos' URLs and names, so

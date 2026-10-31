@@ -1,8 +1,16 @@
-# 个人 cgit Docker 服务
+# 轻量 cgit 一体化服务
 
 [cgit](https://git.zx2c4.com/cgit/) `v1.3.1` + lighttpd，HTTP `8080`。
 保留轻量仓库浏览，增加 Git Smart HTTP、Git LFS、个人账号和维护检查。
 仅构建 `linux/amd64`；无需数据库、外部对象存储或运行时出站网络。
+
+容器内的 Web 服务器是 **lighttpd，不是 Nginx**。请求依次经过 lighttpd、Python CGI 网关，再交给 cgit 页面、Git HTTP 后端或 LFS 文件接口。NAS/公网入口可以接已有反向代理，但不是本项目必须部署的另一项服务。
+
+工作区已实现候选的多用户 Gitolite 授权、容器 SSH、SSH→HTTPS LFS 认证、Caddy 公网入口，以及独立 maintenance 任务/恢复入口，设计和剩余验收见 [完整规划](docs/PLAN.md) 与 [实施记录](docs/PROGRESS.md)。这些新增路径尚未在 Linux Compose 上验收，也没有部署到 NAS/VPS；默认单镜像说明仍可直接使用。
+
+安全要求与发布前验收见 [安全设计](docs/SECURITY-DESIGN.md)，目前是规划，不代表已完成安全加固或部署验证。
+
+后续开发路线已确定为 [Python 验证 → Go 全量迁移，配套 GitHub Actions 测试](docs/RUNTIME-MIGRATION-AND-CI.md)。当前运行代码仍是 Python。
 
 ## 开始使用
 
@@ -26,9 +34,11 @@ git clone --depth=1 http://<ip>:8080/demo shallow-demo
 Smart HTTP 自动处理 clone/fetch；旧 dumb HTTP 的读取端点仍然可用。
 没有配置 LFS 的普通 Git 客户端只能取到指针，不能自动获得大文件。
 
-## 个人账号与写入
+## 默认个人账号与写入
 
 没有团队角色或仓库 ACL：**一个账号管理这套服务的全部仓库**。
+
+需要公开/私有混合仓库、少量协作者和容器 SSH 时，使用 `docker-compose.access.yml`；该模式以 Gitolite 的 `gitolite.conf + keydir` 为权威，身份与策略应用入口是 `runtime/access.py`。它已通过本地真实 native 黑盒测试，但 Linux Compose、Caddy TLS、真实 restic 和部署验收仍未完成，不能把当前工作区文件当成已上线服务。
 
 | 模式 | 浏览、克隆、LFS 下载 | LFS 上传 | Git HTTP push |
 |---|---|---|---|
@@ -69,9 +79,12 @@ git init --bare --initial-branch=main repos/new-project.git
 | `TZ` | `Asia/Shanghai`（Compose） | 时区 |
 | `CGIT_BASE_URL` | 空 | 外部 HTTP(S) origin，如 `https://git.example.com`；不支持子路径部署 |
 | `CGIT_AUTH_MODE` | `public` | `public` 或 `private` |
+| `CGIT_ACCESS_ROOT` | 空 | `access` 模式下的 `/access` 策略根目录 |
+| `CGIT_GITOLITE` | 空 | `access` 模式下容器内 Gitolite 可执行文件 |
 | `CGIT_USERNAME` | 空 | 个人账号名，与密码文件一起配置 |
 | `CGIT_PASSWORD_FILE` | 空 | 容器内一行密码文件路径 |
 | `CGIT_HTTP_PUSH` | `0` | `1` 开启 Git HTTP push；另需账号和可写仓库卷 |
+| `CGIT_SSH_PUSH` | `0` | `access` SSH 模式下是否允许 `git-receive-pack` |
 | `CGIT_LFS_MAX_SIZE` | `10737418240` | 单对象上限，字节，默认 10 GiB；同时用于请求体上限 |
 | `CGIT_SSH_CLONE_URL` | 空 | 额外显示的 SSH clone URL 模板，必须包含字面量 `$CGIT_REPO_URL` |
 
@@ -94,6 +107,7 @@ CGIT_SSH_CLONE_URL='git@nas:/path/to/repos/$CGIT_REPO_URL.git'
 `config/cgitrc` 可只读挂载到 `/etc/cgitrc`，启动时生成有效配置而不改挂载原文件。
 为使 LFS 对象落盘/缺失立即体现在网页中，运行配置关闭 cgit HTML 缓存；静态资源压缩缓存保留。
 使用内置 `scan-path=/repos` 和 `remove-suffix=1` 目录约定；自定义 `repo.url`/外部仓库路径不属于 Git/LFS 网关映射范围。
+启动时检查扫描约定；不支持的 `include`、手工 `repo.*` 列表、隐藏目录扫描或非 bare 仓库会明确报错。修改挂载的 cgitrc 后需重建容器配置（重新创建容器或 restart），不要在线直接编辑生成配置。
 
 ## LFS 使用与迁入
 
@@ -133,12 +147,14 @@ git lfs push --all nas
 
 ## 浏览能力
 
-- README Markdown（代码块、表格）、语法高亮、提交图、blame、统计。
+- README Markdown（代码块、表格）、语法高亮、提交图、blame。
 - 并排 diff 默认开启，可在页面切换；文件 log 支持跟随重命名。
 - 原生提交搜索、Atom 订阅、patch 下载、分支/标签、ZIP/tar.gz 快照。
 - 默认分支 README 的 Markdown 相对链接指向对应提交的 tree/raw 路径；相对图片可以加载 LFS 实体。原始 HTML 标签里的自定义相对 URL 不做重写。
 - README HTML 做清理；原始 HTML/SVG 文件不作为可执行页面提供。
 - 多层仓库分类、仓库元数据和 SSH clone 地址。
+
+个人使用默认保留名称排序、按活跃时间排列分支。日志不计算每条提交的文件数/增删行数，活动统计默认关闭；commit/diff 页面仍显示详细改动。确实需要统计的仓库可单独设置 `git config cgit.max-stats month`。这些调整减少不必要的计算路径，尚无性能基准数据。
 
 单仓库元数据在 **bare repo 本身** 设置：
 
@@ -150,7 +166,12 @@ git -C repos/demo.git config gitweb.category 'personal'
 
 这些配置不会随普通 Git push 传输，需在服务器或挂载目录上设置。
 `cgit.hide=1` 只隐藏列表项，**不是访问控制**；`cgit.ignore=1` 排除仓库，网关也拒绝其 Git/LFS 路径。
-Git/LFS 网关拒绝穿越目录和符号链接仓库。仓库目录及配置属于管理员信任边界。
+`cgit.ignore` 只接受 `0`/`1`，不要写 `true`/`false`；非规范值启动时报错，运行时检测到则拒绝相关请求和网页扫描，错误详情见容器日志。也支持 bare 仓库内 `cgitrc` 的 `ignore=0/1`，它按上游顺序覆盖 Git config。
+
+`noweb` 标记、全局 `strict-export=<标记文件名>`、`project-list=<绝对路径>` 同时约束网页和 Git/LFS，后两项必须位于 `scan-path` 之前。名单按真实目录写，例如 `group/demo.git`，也可写 `group` 以包含整个分类；每行一个相对路径，空行忽略，不带末尾斜杠，不支持宏、隐藏/穿越路径或符号链接。默认不启用这些筛选，不改变现有仓库公开范围。
+
+仓库根目录只支持普通目录和 bare 仓库；发现符号链接目录时会阻止启动或网页扫描，不让 cgit 另行跟随它。仓库配置及目录仍属于管理员信任边界。
+嵌套仓库的目录分类会覆盖 `gitweb.category`；如需例外，可在该 bare 仓库的 `cgitrc` 写 `section=自定义分类`。
 
 ## 数据与维护
 
@@ -160,6 +181,10 @@ lfs/<repo>.git/objects/aa/bb/<sha256>
                        每仓库独立的 LFS 对象；无需数据库
 cache/                 可重建配置、静态压缩缓存、上传缓冲、轮转访问日志
 secrets/               个人密码文件（使用写入配置时）
+access/                Gitolite 策略、身份哈希、SSH 授权和 LFS token key
+ssh-host-keys/         容器 SSH 持久主机密钥
+jobs/ + job-state/     maintenance 任务声明与最近状态
+backups/               本地归档/restic 暂存，不替代独立灾备
 ```
 
 ```sh
@@ -169,7 +194,7 @@ docker logs cgit
 docker exec cgit tail -n 100 /var/cache/cgit/access.log
 ```
 
-doctor 输出 JSON，问题返回非零退出码。`--git` 对各仓库执行 `git fsck --full`；`--lfs` 检查所有 refs 可达的标准指针，并对存储对象计算 SHA-256，可发现缺失、损坏及中断上传残留。大对象库检查可能较慢，按需运行；不自动删除孤立对象。
+doctor 输出 JSON，问题返回非零退出码。包括被 ignore/noweb/名单排除的 bare 仓库，完整性检查不随发布范围缩小；符号链接目录不跟随。`--git` 对各仓库执行 `git fsck --full`；`--lfs` 检查所有 refs 可达的标准指针，并对这些仓库的存储对象计算 SHA-256，可发现缺失、损坏及中断上传残留。大对象库检查可能较慢，按需运行；不自动删除孤立对象，也不代表已审计整个 LFS 根目录中的无主目录。
 root 启动的容器中 `docker exec` 默认是 root；要检查与服务相同的文件权限，可加 `--user <PUID>:<PGID>`。
 
 `/_health` 是受读取认证保护的动态存活检查；镜像 HEALTHCHECK 仍检查静态资源，允许空仓库集合。它不代表每个仓库或 LFS 对象完整。
@@ -189,22 +214,27 @@ mkdir -p backups
 tar -czf "backups/cgit-data-$(date +%Y%m%d-%H%M%S).tar.gz" repos lfs
 ```
 
-升级可使用固定镜像 tag 回退；当前 LFS 布局为普通文件，没有自动数据迁移或破坏性清理。
+升级与回退记录镜像 digest；tag 可能被重建覆盖。当前 LFS 布局为普通文件，没有自动数据迁移或破坏性清理。详细步骤、备份边界及 Forgejo 迁移见 [个人维护说明](docs/OPERATIONS.md)。
 
 ## 验证与 CI
 
 ```sh
-# 本地协议测试，要求 Python 3.11+、Git 和 Git LFS；不读写用户全局 Git 配置。
-python3 -m unittest discover -s tests -v
+# 本地协议测试；不读写用户全局 Git 配置。报告明确标注缺少真实 Web/容器证据。
+python3 scripts/check_contracts.py --stage baseline
+python3 scripts/test.py --driver cgi --report artifacts/local.json
 
 # 完整镜像验证，额外覆盖真实 lighttpd、cgit 页面和过滤器。
 docker build -t cgit:test .
-CGIT_TEST_DRIVER=docker CGIT_TEST_IMAGE=cgit:test python3 -m unittest discover -s tests -v
+CGIT_TEST_IMAGE=cgit:test python3 scripts/test.py --driver docker --require-no-skips --report artifacts/container.json
 ```
 
-测试只使用临时合成仓库及测试密码。无 Docker 的默认测试会明确跳过 cgit 页面检查。
-CI：协议/配置测试 → amd64 构建 → 原有冒烟检查 → 容器 Git/LFS 端到端检查 → 发布 GHCR。
-每周一重建，更新 Alpine 包。`latest`/`main` 为浮动 tag；`<date>-<sha>` 与版本 tag 用于追溯。
+测试要求 Python 3.11+、Git、Git LFS，只使用临时合成仓库及测试密码。CGI 驱动属于部分证据，会跳过真实 Web 检查；完整 Docker 驱动缺引擎或发生跳过即失败。
+
+新增独立契约位于 `tests/contracts/`，从外部 HTTP/Git/LFS/配置 CLI 验证行为，不导入生产模块；原有内部回归仍保留。`contracts/runtime.json` 区分已实现基线与尚缺的 Python 完整方案/Go 交付用例，静态库存检查不等于功能验证。
+
+CI 定义：PR/main/work 分支/定期/手动测试 → 协议基线 → amd64 构建 → 真实 cgit/lighttpd + 黑盒与现有回归。测试 job 只有读取权限，不登录 registry。仅在 main 手动选择 publish 后发布已测试的同一份镜像，并拉取 digest 复验；不会自动部署。定期构建只验证依赖更新，不自动替换正式镜像。
+
+新工作流仍需授权推送后才能在 GitHub 上运行；本地修改不能代表远端已经启用。当前 P1/P2 的本地 native 链路通过，P3 已有任务/恢复 CLI 与 Compose/TLS 黑盒契约；Linux 镜像与 Compose/TLS 的实际执行、真实调度与 restic、Go 用例仍待后续阶段，进度见 [实施记录](docs/PROGRESS.md)。
 
 升级 cgit 时同时更新 `Dockerfile` 的 `CGIT_VERSION`、`CGIT_COMMIT`、`GIT_VERSION` 和 `GIT_SHA256`。
 构建 cgit 的 Git 源码需匹配上游固定版本；运行 Smart HTTP 的 Git 二进制来自 Alpine 安全更新包，两者独立。

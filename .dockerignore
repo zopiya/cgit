@@ -9,8 +9,17 @@ repos
 lfs
 cache
 backups
+access
+ssh-host-keys
+caddy-data
+caddy-config
+job-state
+job-work
 __pycache__
 **/__pycache__
 .venv
 tests
 docs
+artifacts
+contracts
+scripts

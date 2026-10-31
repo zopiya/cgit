@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "timezone": "Asia/Shanghai",
+  "jobs": [
+    {
+      "id": "integrity-check",
+      "type": "check",
+      "cron": "0 3 * * *",
+      "enabled": true,
+      "timeout": 3600,
+      "git": true,
+      "lfs": true
+    },
+    {
+      "id": "data-archive",
+      "type": "archive",
+      "cron": "30 3 * * *",
+      "enabled": false,
+      "timeout": 7200,
+      "destination": "/backups",
+      "retain_count": 7
+    },
+    {
+      "id": "encrypted-backup",
+      "type": "backup",
+      "cron": "0 4 * * *",
+      "enabled": false,
+      "timeout": 21600,
+      "repository": "/backups/restic",
+      "password_file": "/secrets/restic_password",
+      "tags": ["cgit"]
+    }
+  ]
+}

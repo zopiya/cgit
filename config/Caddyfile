@@ -1,0 +1,28 @@
+{
+    admin off
+    email {$CGIT_ACME_EMAIL}
+}
+
+{$CGIT_DOMAIN} {
+    encode gzip zstd
+
+    reverse_proxy cgit:8080 {
+        header_up Host {host}
+        flush_interval -1
+        transport http {
+            dial_timeout 10s
+            response_header_timeout 300s
+        }
+    }
+
+    header {
+        -Server
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+    }
+
+    log {
+        output stdout
+        format json
+    }
+}

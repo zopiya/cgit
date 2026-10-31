@@ -12,14 +12,22 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
-from common import RequestError, config, git, object_path, pointer, repository
+from access import session as access_session
+from common import RequestError, config, git, object_path, pointer, project_entries, repository, validate_scan
+import lfs_token
 
 JSON_TYPE = "application/vnd.git-lfs+json"
 OUT = sys.stdout.buffer
 IN = sys.stdin.buffer
 HEADERS_SENT = False
+
+
+class LfsBearer:
+    def __init__(self, token):
+        self.token = token
 
 
 def headers(status=200, content_type=JSON_TYPE, **extra):
@@ -40,31 +48,100 @@ def respond(status, payload, **extra):
         OUT.write(data)
 
 
-def authenticate(cfg, required=False):
+def unauthorized():
+    respond(401, {"message": "Authentication required"},
+            WWW_Authenticate='Basic realm="cgit", charset="UTF-8"')
+    raise SystemExit
+
+
+def basic_credentials():
     supplied = os.environ.get("HTTP_AUTHORIZATION", "")
-    if not supplied and not required:
-        return False
-    valid = False
-    if cfg["username"] and supplied.startswith("Basic "):
-        try:
-            raw = base64.b64decode(supplied[6:], validate=True)
-            user, password = raw.split(b":", 1)
-            secret = Path(cfg["password_file"]).read_bytes().rstrip(b"\r\n")
-            valid = (hmac.compare_digest(user, cfg["username"].encode())
-                     and hmac.compare_digest(password, secret))
-        except (ValueError, binascii.Error):
-            pass
+    if not supplied:
+        return None
+    if supplied.startswith("Bearer "):
+        token = supplied[7:]
+        if not token or any(c.isspace() for c in token):
+            raise ValueError("Malformed bearer token")
+        return LfsBearer(token)
+    if not supplied.startswith("Basic "):
+        raise ValueError("Unsupported authorization scheme")
+    raw = base64.b64decode(supplied[6:], validate=True)
+    user, password = raw.split(b":", 1)
+    return user.decode("utf-8", "strict"), password
+
+
+def request_principal(cfg):
+    try:
+        credentials = basic_credentials()
+    except (UnicodeError, ValueError, binascii.Error):
+        unauthorized()
+    if cfg["auth_mode"] == "access":
+        if credentials is None:
+            return None
+        if isinstance(credentials, LfsBearer):
+            return credentials
+        username, secret = credentials
+        if not access_session(cfg).authenticate(username, secret):
+            unauthorized()
+        return username
+    if credentials is None:
+        if cfg["auth_mode"] == "private":
+            unauthorized()
+        return None
+    if isinstance(credentials, LfsBearer):
+        unauthorized()
+    username, password = credentials
+    try:
+        secret = Path(cfg["password_file"]).read_bytes().rstrip(b"\r\n")
+    except OSError as exc:
+        raise RequestError(503, "Authentication configuration unavailable") from exc
+    valid = (cfg["username"]
+             and hmac.compare_digest(username.encode(), cfg["username"].encode())
+             and hmac.compare_digest(password, secret))
     if not valid:
-        respond(401, {"message": "Authentication required"},
-                WWW_Authenticate='Basic realm="cgit", charset="UTF-8"')
-        raise SystemExit
-    return True
+        unauthorized()
+    return username
 
 
-def require_write(cfg):
-    if not cfg["username"]:
-        raise RequestError(403, "HTTP writes require a configured account")
-    authenticate(cfg, required=True)
+def authorization(cfg):
+    if cfg["auth_mode"] != "access":
+        return None
+    return access_session(cfg)
+
+
+def require_access(authorization_value, name, principal, operation):
+    try:
+        authorization_value.require(name, principal, operation)
+    except RequestError as exc:
+        if exc.status == 401:
+            unauthorized()
+        raise
+
+
+def require_operation(cfg, name, credential, operation, surface):
+    if isinstance(credential, LfsBearer):
+        if cfg["auth_mode"] != "access" or surface != "lfs":
+            unauthorized()
+        try:
+            principal = lfs_token.verify(
+                cfg,
+                credential.token,
+                name[:-4] if name.endswith(".git") else name,
+                "download" if operation == "R" else "upload",
+                authorization(cfg).state["generation"],
+            )
+        except ValueError:
+            unauthorized()
+    else:
+        principal = credential
+    if cfg["auth_mode"] == "access":
+        require_access(authorization(cfg), name, principal, operation)
+    elif operation == "W":
+        if not cfg["username"]:
+            raise RequestError(403, "HTTP writes require a configured account")
+        if principal is None:
+            unauthorized()
+    return principal
 
 
 def length(limit):
@@ -117,13 +194,12 @@ def object_info(value, cfg):
     return oid, size
 
 
-def batch(cfg, name):
+def batch(cfg, name, principal):
     payload = read_json()
     operation = payload.get("operation")
     if operation not in ("upload", "download"):
         raise RequestError(422, "Unsupported operation")
-    if operation == "upload":
-        require_write(cfg)
+    require_operation(cfg, name, principal, "W" if operation == "upload" else "R", "lfs")
     if payload.get("hash_algo", "sha256") != "sha256":
         raise RequestError(422, "Only SHA-256 is supported")
     transfers = payload.get("transfers", ["basic"])
@@ -132,29 +208,39 @@ def batch(cfg, name):
     objects = payload.get("objects")
     if not isinstance(objects, list) or len(objects) > 1000:
         raise RequestError(422, "Expected at most 1000 objects")
+    action_header = (
+        {"Authorization": "Bearer " + principal.token}
+        if isinstance(principal, LfsBearer) else None)
     results = []
     for obj in objects:
         oid, size = object_info(obj, cfg)
         path = object_path(cfg, name, oid)
-        item = dict(oid=oid, size=size, authenticated=False)
+        item = dict(oid=oid, size=size, authenticated=action_header is not None)
         href = origin(cfg) + "/" + quote(name, safe="/") + "/info/lfs/objects/" + oid
         exists = path.is_file()
         if exists and path.stat().st_size != size:
             item["error"] = dict(code=422, message="Stored size does not match pointer")
         elif operation == "download":
             if exists:
-                item["actions"] = {"download": {"href": href}}
+                action = {"href": href}
+                if action_header is not None:
+                    action["header"] = action_header
+                item["actions"] = {"download": action}
             else:
                 item["error"] = dict(code=404, message="LFS object is missing")
         elif not exists:
-            item["actions"] = {"upload": {"href": href + f"?size={size}"},
-                               "verify": {"href": href + "/verify"}}
+            upload = {"href": href + f"?size={size}"}
+            verify = {"href": href + "/verify"}
+            if action_header is not None:
+                upload["header"] = action_header
+                verify["header"] = action_header
+            item["actions"] = {"upload": upload, "verify": verify}
         results.append(item)
     respond(200, dict(transfer="basic", objects=results, hash_algo="sha256"))
 
 
-def upload(cfg, name, oid, query):
-    require_write(cfg)
+def upload(cfg, name, oid, query, principal):
+    require_operation(cfg, name, principal, "W", "lfs")
     size = length(cfg["max_size"])
     if query.get("size", [None]) != [str(size)]:
         raise RequestError(422, "Upload size differs from batch request")
@@ -240,17 +326,17 @@ def send_object(cfg, name, oid, filename="", inline=False, expected_size=None):
                 remaining -= len(chunk)
 
 
-def lfs(cfg, match, method, query):
+def lfs(cfg, match, method, query, principal):
     _, name = repository(cfg, match[1])
     action = match[2]
     if action == "objects/batch" and method == "POST":
-        batch(cfg, name)
+        batch(cfg, name, principal)
         return
     obj = re.fullmatch(r"objects/([0-9a-f]{64})(/verify)?", action)
     if obj:
         oid = obj[1]
         if obj[2] and method == "POST":
-            require_write(cfg)
+            require_operation(cfg, name, principal, "W", "lfs")
             requested, size = object_info(read_json(), cfg)
             path = object_path(cfg, name, oid)
             if requested != oid or not path.is_file() or path.stat().st_size != size:
@@ -259,9 +345,10 @@ def lfs(cfg, match, method, query):
             return
         if not obj[2]:
             if method == "PUT":
-                upload(cfg, name, oid, query)
+                upload(cfg, name, oid, query, principal)
                 return
             if method in ("GET", "HEAD"):
+                require_operation(cfg, name, principal, "R", "lfs")
                 send_object(cfg, name, oid, query.get("filename", [""])[0],
                             query.get("inline") == ["1"])
                 return
@@ -270,7 +357,7 @@ def lfs(cfg, match, method, query):
     raise RequestError(405, "Unsupported LFS endpoint or method")
 
 
-def smart_http(cfg, match, method, query):
+def smart_http(cfg, match, method, query, principal):
     repo, name = repository(cfg, match[1])
     action = match[2]
     if action == "info/refs":
@@ -284,23 +371,138 @@ def smart_http(cfg, match, method, query):
     if service == "git-receive-pack":
         if not cfg["http_push"]:
             raise RequestError(403, "HTTP push is disabled; use SSH or enable CGIT_HTTP_PUSH")
-        require_write(cfg)
+        principal = require_operation(cfg, name, principal, "W", "git")
+    else:
+        principal = require_operation(cfg, name, principal, "R", "git")
     env = os.environ.copy()
     env.update(GIT_PROJECT_ROOT=cfg["repos"], GIT_HTTP_EXPORT_ALL="1",
                PATH_INFO=f"/{name}/{action}",
                GIT_PROTOCOL=env.get("HTTP_GIT_PROTOCOL", ""))
-    if cfg["username"] and env.get("HTTP_AUTHORIZATION"):
+    if cfg["auth_mode"] == "access":
+        root = str(authorization(cfg).root)
+        bindir, libdir = authorization(cfg).gitolite_directories()
+        logical_name = name[:-4] if name.endswith(".git") else name
+        env.update(HOME=root, GITOLITE_HTTP_HOME=root,
+                   GL_BINDIR=str(bindir), GL_LIBDIR=str(libdir),
+                   GL_REPO=logical_name, GL_USER=principal or "anonymous",
+                   REMOTE_USER=principal or "anonymous")
+    elif cfg["username"] and env.get("HTTP_AUTHORIZATION"):
         env["REMOTE_USER"] = cfg["username"]
     os.execvpe("git", ["git", "-c", f"safe.directory={repo}", "-c",
                         f"http.receivepack={'true' if cfg['http_push'] else 'false'}",
                         "http-backend"], env)
 
 
-def plain_lfs(cfg, path, query):
+def match_web_repository(authorization, value):
+    value = value.strip("/")
+    if not value:
+        return None
+    if any(part in (".", "..") or not part for part in value.split("/")):
+        return None
+    for logical in sorted(authorization.state["repositories"], key=len, reverse=True):
+        for alias in (logical, logical + ".git"):
+            if value == alias or value.startswith(alias + "/"):
+                return logical
+    return None
+
+
+def web_target(cfg, path, query):
+    authorization_value = authorization(cfg)
+    if authorization_value is None:
+        return None
+    for key in ("r", "url"):
+        values = query.get(key)
+        if values is None:
+            continue
+        if len(values) != 1:
+            raise RequestError(400, "Ambiguous repository URL")
+        value = values[0]
+        if key == "url":
+            parsed = urlsplit(value)
+            if parsed.scheme or parsed.netloc:
+                return None
+            value = parsed.path
+        return match_web_repository(authorization_value, value)
+    return match_web_repository(authorization_value, path)
+
+
+def sweep_policy_files(directory):
+    now = time.time()
+    entries = []
+    for entry in directory.iterdir():
+        if entry.is_symlink():
+            entry.unlink()
+            continue
+        if not entry.is_file():
+            continue
+        try:
+            age = now - entry.stat().st_mtime
+        except FileNotFoundError:
+            continue
+        if age > 3600:
+            entry.unlink(missing_ok=True)
+        else:
+            entries.append(entry)
+    if len(entries) > 2048:
+        for entry in sorted(entries, key=lambda item: item.stat().st_mtime)[:len(entries) - 2048]:
+            entry.unlink(missing_ok=True)
+
+
+def request_cgit_config(cfg, visible):
+    runtime = Path(cfg["cgit_config"]).parent
+    policies = runtime.parent / "policies"
+    policies.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if policies.is_symlink():
+        raise ValueError("Policy directory must not be a symlink")
+    sweep_policy_files(policies)
+    project_file = config_file = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=policies, prefix="projects-",
+                                         delete=False) as stream:
+            project_file = Path(stream.name)
+            os.chmod(project_file, 0o600)
+            for name in visible:
+                stream.write(name + ".git\n")
+        source = Path(cfg["cgit_config"]).read_text()
+        source = re.sub(r"^project-list=.*\n?", "", source, flags=re.M)
+        source, count = re.subn(r"^scan-path=", f"project-list={project_file}\nscan-path=",
+                                source, count=1, flags=re.M)
+        if count != 1:
+            raise ValueError("Generated cgit configuration has no unique scan-path")
+        with tempfile.NamedTemporaryFile(mode="w", dir=policies, prefix="cgitrc-",
+                                         delete=False) as stream:
+            config_file = Path(stream.name)
+            os.chmod(config_file, 0o600)
+            stream.write(source)
+        return config_file
+    except BaseException:
+        if project_file is not None:
+            project_file.unlink(missing_ok=True)
+        if config_file is not None:
+            config_file.unlink(missing_ok=True)
+        raise
+
+
+def visible_repositories(cfg, principal):
+    readable = authorization(cfg).readable(principal)
+    visible = []
+    for logical in sorted(readable):
+        try:
+            repository(cfg, logical, serving=True)
+        except RequestError as exc:
+            if exc.status == 404:
+                continue
+            raise
+        visible.append(logical)
+    return visible
+
+
+def plain_lfs(cfg, path, query, principal):
     if "/plain/" not in path:
         return False
     name, filename = path.lstrip("/").split("/plain/", 1)
     repo, name = repository(cfg, name)
+    require_operation(cfg, name, principal, "R", "lfs")
     revision = query.get("id", query.get("h", ["HEAD"]))[0]
     result = git(repo, "rev-parse", "--verify", "--end-of-options", revision + "^{commit}", check=False)
     if result.returncode:
@@ -332,29 +534,48 @@ def main():
     if any(p in (".", "..") for p in path.split("/")):
         raise RequestError(404, "Not found")
     query = parse_qs(url.query, keep_blank_values=True)
-    authenticate(cfg, required=cfg["auth_mode"] == "private")
+    principal_name = request_principal(cfg)
     if path == "/_health":
         if method not in ("GET", "HEAD"):
             raise RequestError(405, "Method not allowed")
+        if (cfg["auth_mode"] == "access"
+                and (principal_name is None or isinstance(principal_name, LfsBearer))):
+            unauthorized()
         healthy = (Path(cfg["repos"]).is_dir() and Path(cfg["lfs"]).is_dir()
                    and os.access(cfg["cgit"], os.X_OK))
         respond(200 if healthy else 503, {"status": "ok" if healthy else "unavailable"})
         return
     match = re.fullmatch(r"/(.+?)/info/lfs/(.*)", path)
     if match:
-        lfs(cfg, match, method, query)
+        lfs(cfg, match, method, query, principal_name)
         return
     match = re.fullmatch(r"/(.+?)/(info/refs|git-upload-pack|git-receive-pack)", path)
     if match and (match[2] != "info/refs" or "service" in query):
-        smart_http(cfg, match, method, query)
+        smart_http(cfg, match, method, query, principal_name)
         return
     if method not in ("GET", "HEAD"):
         raise RequestError(405, "Method not allowed")
-    if plain_lfs(cfg, path, query):
+    if plain_lfs(cfg, path, query, principal_name):
         return
-    env = os.environ.copy()
-    env.update(CGIT_CONFIG=cfg["cgit_config"], PATH_INFO=path, SCRIPT_NAME="",
-               QUERY_STRING=url.query)
+    # cgit performs its own scan (including legacy query-string URLs). Check
+    # ambiguous flags and unsupported paths before *any* page, including index.
+    validate_scan(cfg["repos"])
+    projects = cfg.get("repository_policy", {}).get("project_list")
+    if projects is not None:
+        project_entries(projects)
+    if cfg["auth_mode"] == "access":
+        if isinstance(principal_name, LfsBearer):
+            unauthorized()
+        target = web_target(cfg, path, query)
+        if target is not None:
+            require_access(authorization(cfg), target, principal_name, "R")
+        visible = visible_repositories(cfg, principal_name)
+        cgit_config = request_cgit_config(cfg, visible)
+        env = authorization(cfg).cgi_environment(principal_name, cgit_config)
+    else:
+        env = os.environ.copy()
+        env["CGIT_CONFIG"] = cfg["cgit_config"]
+    env.update(PATH_INFO=path, SCRIPT_NAME="", QUERY_STRING=url.query)
     os.execve(cfg["cgit"], [cfg["cgit"]], env)
 
 

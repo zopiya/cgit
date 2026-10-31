@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "description": "Baseline contracts are implemented; Python-complete and Go-complete requirements remain open until evidenced.",
+  "requirements": [
+    {"id": "BASE-GIT", "stage": "baseline", "test": "contracts.test_protocol.PublicProtocol.test_smart_git_clone_fetch_and_authenticated_push"},
+    {"id": "BASE-LFS", "stage": "baseline", "test": "contracts.test_protocol.PublicProtocol.test_lfs_batch_hash_range_head_and_verify"},
+    {"id": "BASE-LFS-CLIENT", "stage": "baseline", "test": "contracts.test_protocol.PublicProtocol.test_real_lfs_client_round_trip"},
+    {"id": "BASE-ISOLATION", "stage": "baseline", "test": "contracts.test_protocol.PublicProtocol.test_anonymous_write_and_repository_isolation"},
+    {"id": "BASE-EXCLUSION", "stage": "baseline", "test": "contracts.test_protocol.PublicProtocol.test_exclusion_rules_block_git_and_lfs"},
+    {"id": "BASE-CONCURRENCY", "stage": "baseline", "test": "contracts.test_protocol.PublicProtocol.test_concurrent_and_empty_lfs_objects"},
+    {"id": "BASE-PRIVATE", "stage": "baseline", "test": "contracts.test_protocol.PrivateProtocol.test_private_every_dynamic_read_requires_authentication"},
+    {"id": "BASE-READONLY", "stage": "baseline", "test": "contracts.test_protocol.ReadOnlyProtocol.test_switch_blocks_receive_pack_even_with_repository_override"},
+    {"id": "BASE-WEB", "stage": "baseline", "test": "contracts.test_protocol.WebProtocol.test_browsing_filters_gzip_and_archive"},
+    {"id": "BASE-WEB-EXCLUSION", "stage": "baseline", "test": "contracts.test_protocol.WebProtocol.test_excluded_repository_not_in_index_or_legacy_links"},
+    {"id": "ACL-MATRIX", "stage": "python", "tests": ["contracts.test_access.AccessProtocol.test_identity_matrix_across_web_git_lfs_and_update_hook", "contracts.test_ssh.SshProtocol.test_identity_and_key_revocation_invalidate_existing_credentials"], "acceptance": "Anonymous/unassigned/R/RW/owner/disabled/key-revoked across public/private/internal repositories and every transport"},
+    {"id": "SSH-RESTRICTED", "stage": "python", "tests": ["contracts.test_ssh.SshProtocol.test_ssh_clone_push_ref_policy_and_lfs", "contracts.test_ssh.SshProtocol.test_ssh_rejects_shell_and_ssh_lfs_upload_denial", "contracts.test_ssh.SshProtocol.test_host_key_persists_and_service_restarts"], "acceptance": "Real forced commands, forwarding/shell denial, HTTP/SSH ref hooks, persistent host keys"},
+    {"id": "SSH-LFS", "stage": "python", "tests": ["contracts.test_ssh.SshProtocol.test_ssh_clone_push_ref_policy_and_lfs", "contracts.test_ssh.SshProtocol.test_identity_and_key_revocation_invalidate_existing_credentials"], "acceptance": "Real git-lfs-authenticate and scoped expiring tokens, including revocation and object actions"},
+    {"id": "COMPOSE-TLS", "stage": "python", "tests": ["contracts.test_compose.ComposeTlsContract.test_https_clone_push_headers_and_restart", "contracts.test_compose.ComposeTlsContract.test_ssh_port_is_published_and_host_key_survives_restart"], "acceptance": "edge/web/ssh on Linux, trusted test CA, backend isolation, restart and permissions"},
+    {"id": "JOBS", "stage": "python", "tests": ["contracts.test_jobs.JobsCliContract.test_cli_inventory_archive_and_backup_are_observable", "contracts.test_jobs.JobsCliContract.test_sync_in_is_real_and_rejects_remote_helper_injection"], "acceptance": "Scheduled/manual sync/check/archive/backup, conflicts, limits, locks and restart recovery"},
+    {"id": "RESTORE", "stage": "python", "test": "contracts.test_jobs.JobsCliContract.test_restore_requires_complete_verified_data", "acceptance": "Consistent encrypted backup and isolated Git/LFS/identity/ACL restore and clone"},
+    {"id": "SECURITY-GATES", "stage": "python", "test": "contracts.test_security_gate.SecurityGateContract.test_gate_is_fail_closed_and_reports_manual_boundary", "acceptance": "Automated evidence covers mapped tests, Linux artifacts and static controls; S01-S08 / G1-G8 manual gates remain explicitly incomplete until independently observed"},
+    {"id": "GO-PARITY", "stage": "go", "test": null, "acceptance": "Same independent contracts and persistent schemas as the frozen Python reference, documented permitted differences"},
+    {"id": "GO-NO-PYTHON", "stage": "go", "test": null, "acceptance": "Production web/ssh/maintenance image package inventories and actual workflows show no Python runtime/filter/fallback dependency"},
+    {"id": "GO-SECURITY", "stage": "go", "test": null, "acceptance": "race detector, parser fuzz, govulncheck, image/secret scans and full-container security/regression evidence"}
+  ]
+}

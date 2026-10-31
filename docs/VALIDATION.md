@@ -1,5 +1,72 @@
 # 验证记录
 
+## 2026-10-31：P3 Compose/TLS 契约已实现，未在 Linux 执行
+
+- 新增 `tests/contracts/test_compose.py`，从现有三份 Compose 文件启动 edge/cgit/ssh，使用 Caddy 内部 CA 作为测试信任根；不关闭客户端证书校验。
+- 用例检查 Web 后端没有宿主端口、SSH 端口显式发布、HTTPS 的 401/200 与安全响应头，并通过 HTTPS 完成真实 Git clone/push；重启 edge 后重新 clone。
+- 第二个用例通过真实 SSH 客户端 clone，重启 SSH 服务并核对主机密钥指纹不变。
+- 容器测试可用已构建镜像内的 Gitolite 执行 access 契约，CI 设置 `CGIT_TEST_GITOLITE_IMAGE=cgit:ci`；这替换了原先会因宿主无 Gitolite 而跳过的夹具路径。
+- 本机无 Docker：上述 Compose/TLS 用例只做了 Python 编译、YAML 结构检查和跳过路径验证，**没有实际启动**。
+- CGI 回归：`python3 scripts/test.py --driver cgi --report artifacts/continue-current.json` 执行 80 个测试，0 failure/error；报告 `complete: false`，12 条 skip 记录覆盖真实 Web、SSH、Gitolite 和 Compose/TLS，不能作为完整服务证明。
+- `compileall`、三个入口脚本的 ShellCheck、`git diff --check` 与当前提交历史范围的 `gitleaks` 检查通过。秘密扫描无发现只描述该次合成仓库扫描，不证明历史或运行环境绝对无泄漏。
+
+## 2026-10-31：P2 Gitolite ACL 适配器首个切片
+
+- 使用固定 Gitolite v3.6.14（提交 `b427f928615f60d3b361472748d8a768d493bda0`）在临时 Home、临时仓库与临时策略上执行 `scripts/verify_gitolite_access.py`：**24 项检查全部通过**。
+- 覆盖公开匿名 R、私有匿名拒绝、reader R、writer R/W、owner R/W、禁用/未知身份拒绝；凭据正确/错误/禁用，以及匿名 401、无写权限 404。
+- 修改权威策略并重新编译后，`writer` 的私有库 W 被拒绝，未变更的 `reader` 仍可 R；同一适配器实例查询成功后篡改 `gl-conf`，下一查询返回 503；进入 maintenance 也返回 503。
+- 适配器每次查询前重新核对公共编译策略和仓库 `gl-conf` 指纹，避免同一长生命周期实例缓存一次成功结果后继续使用未发布规则。
+- 适配器查询时显式使用 access root 作为 `HOME`，避免 Gitolite 读取运行时用户主目录中的另一份配置。`tests/test_access.py` 对该边界、同实例策略变化和快照/凭据/篡改行为有 8 项内部回归。
+- 报告为 `artifacts/p2-access.json`。这是 native Gitolite CLI 适配证据，不是网页、Git HTTP、LFS 或 SSH 的端到端授权证据；适配器尚未接入现有服务。
+- 验证未启动 SSH daemon、未执行真实 ref update hook、未运行 Linux 容器或 Actions，也未接触 NAS/VPS/真实用户仓库。
+
+本次命令：
+
+```sh
+python3 scripts/verify_gitolite_access.py \
+  --gitolite /private/tmp/cgit-gitolite-source/src/gitolite \
+  --report artifacts/p2-access.json
+```
+
+## 2026-10-31：P1 独立契约与 CI 基础
+
+- 临时构建真实 cgit v1.3.1（提交 044821677c774cd24f25f1818ea51d09cc64b006）与 lighttpd 1.4.82 后执行 `scripts/test.py --driver lighttpd --require-no-skips`：**42 项全部通过，无跳过**。
+- 新的契约测试不导入 runtime 内部代码，通过配置 CLI、HTTP、Git 和 Git LFS 客户端验证；其余原有内部回归保留。
+- 独立客户端环境不读写全局 Git 配置；LFS clone 显式声明客户端过滤器。临时 cgit 构建禁用 Lua并添加仅用于 macOS 的 memrchr 兼容定义；正式 Dockerfile 未改变，不将 native 结果当成 Linux 镜像证明。
+- 先复现再修复名单末尾斜杠的问题；官方 cgit 旧 query 入口 400 与虚拟路径 404 分别精确断言，拒绝响应不得含仓库内容。
+- actionlint、compileall、ShellCheck、diff 格式和文档链接检查通过。缺 Docker 预检真实失败；Python-complete 库存门槛真实拒绝未实现范围。
+- 新工作流具备 PR/开发分支测试、只读测试权限及仅 main 手动发布；发布计划验证同一测试产物的校验值/镜像 ID，并按 digest 拉取复验。**尚未推送或运行远端 Actions，不能宣称该流程已通过。**
+- 运行层报告在忽略的 `artifacts/` 内；任务中无真实仓库/个人密码，没有启动 NAS/VPS 服务。各阶段状态见 [PROGRESS.md](PROGRESS.md)。
+
+本次 native 命令（临时构建目录未作为项目交付依赖）：
+
+```sh
+PATH=/tmp/cgit-native-validation/venv/bin:/opt/homebrew/bin:/usr/bin:/bin \
+CGIT_TEST_LIGHTTPD=/tmp/cgit-native-validation/lighttpd/sbin/lighttpd \
+CGIT_TEST_CGIT=/tmp/cgit-native-validation/cgit/cgit \
+CGIT_TEST_FILTERS=/tmp/cgit-native-validation/cgit/filters \
+/tmp/cgit-native-validation/venv/bin/python scripts/test.py \
+  --driver lighttpd --require-no-skips --report artifacts/p1-native.json
+```
+
+## 2026-10-31：个人使用适配（本地，未部署）
+
+- 默认 CGI 驱动：`python3 -m unittest discover -s tests -v`，31 项中 29 项通过、2 项明确跳过（真实 cgit 浏览、lighttpd gzip）。测试使用临时合成仓库；真实 Git/Git LFS 客户端克隆、浅克隆、fetch、push 和 LFS 往返通过。
+- 新增 Git/LFS 排除规则检查：`cgit.ignore=1`、`noweb`、仓库本地 cgitrc 的 `ignore=1`、`project-list` 和 `strict-export`；保留 hide 仓库的直接访问。
+- 在独立临时目录，把新增测试放到修改前 HEAD 的代码上执行，`noweb` 和本地 `ignore` 均复现错误的 HTTP 200；修改后这些断言返回 404。
+- 错误的 `cgit.ignore=true` 和符号链接目录会阻止网页扫描；配置测试覆盖扫描约定、策略保存、前置空白/注释与缓存覆盖。
+- doctor 现在包含未发布仓库的完整性检查；测试确认 ignore 仓库仍出现在检查清单中。
+- `shellcheck docker-entrypoint.sh`、`python3 -m compileall -q runtime tests`、`git diff --check` 通过。
+- 按官方 v1.3.1 的配置手册、`configfile.c`、`scan-tree.c`、`cgit.c` 核对解析和优先级；模板与生成配置均关闭页面缓存，默认关闭日志文件/行数统计与活动统计。未做性能基准，不报告性能收益。
+
+本机没有 Docker、lighttpd 或可执行的 cgit：**本次没有构建镜像、验证容器启动或执行真实浏览页面断言**。新增测试中的浏览断言只在 lighttpd/Docker 驱动下执行，尚未执行；下方历史的真实服务记录不能替代本次验证。发布前应运行已有 Docker 驱动，覆盖真实 cgit 的列表、直链和 `?r=`/`?url=` 入口。
+
+未访问 NAS、公网服务或真实用户仓库，未提交、推送、发布；备份恢复与 Forgejo 迁移只补充了操作文档，尚未实际演练。
+
+---
+
+以下为历史验证记录。
+
 日期：2026-09-07（Asia/Shanghai）。状态：本地实现与验证；未提交、未推送、未发布或部署。
 
 ## 已执行

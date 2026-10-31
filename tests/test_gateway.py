@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import socket
 import subprocess
 import sys
@@ -28,7 +29,9 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "runtime"))
+from access import hash_secret, publish_snapshot
 from common import RequestError, object_path, pointer, safe_path
+from lfs_token import ensure_secret, issue
 
 AUTH = "Basic " + base64.b64encode(b"owner:fixture-password").decode()
 ENV = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
@@ -42,6 +45,29 @@ def run(*args, cwd=None, check=True, **kwargs):
     if check and result.returncode:
         raise AssertionError(f"{args[:3]} failed: {result.stderr.decode(errors='replace')}")
     return result
+
+
+def gitolite_command(root):
+    binary = os.environ.get("CGIT_TEST_GITOLITE")
+    if binary:
+        return Path(binary).resolve()
+    image = os.environ.get("CGIT_TEST_GITOLITE_IMAGE")
+    if not image:
+        return None
+    wrapper = Path(root) / "container-gitolite"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "fixture_root=$(dirname \"$HOME\")\n"
+        "exec docker run --rm -i --user \"$(id -u):$(id -g)\" "
+        "-e HOME=\"$HOME\" -v \"$fixture_root:$fixture_root\" "
+        f"--entrypoint /usr/local/bin/gitolite {shlex.quote(image)} \"$@\"\n")
+    wrapper.chmod(0o755)
+    return wrapper
+
+
+def basic_auth(user, password):
+    return "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
 
 
 class GatewayServer(ThreadingHTTPServer):
@@ -235,6 +261,120 @@ class GatewayTests(unittest.TestCase):
         temporary.write_text(json.dumps(self.cfg))
         temporary.replace(self.settings)
 
+    def enable_access(self):
+        access = self.root / "access"
+        if access.exists():
+            shutil.rmtree(access)
+        (access / ".gitolite/conf").mkdir(parents=True)
+        compiled = access / ".gitolite/conf/gitolite.conf-compiled.pm"
+        compiled.write_text("%repos = ();\n")
+        public = self.repos / "public.git"
+        run("git", "init", "--bare", "-b", "main", str(public))
+        for repo_name in ("group/demo.git", "public.git"):
+            (self.repos / repo_name / "gl-conf").write_text("%repos = ();\n")
+        users = {
+            "owner": {"enabled": True, "owner": True,
+                      "secret_hash": hash_secret(b"owner-access-secret")},
+            "reader": {"enabled": True, "owner": False,
+                       "secret_hash": hash_secret(b"reader-access-secret")},
+            "writer": {"enabled": True, "owner": False,
+                       "secret_hash": hash_secret(b"writer-access-secret")},
+            "disabled": {"enabled": False, "owner": False,
+                         "secret_hash": hash_secret(b"disabled-access-secret")},
+        }
+        gitolite = self.root / "gitolite"
+        (self.root / "gitolite-bin/lib").mkdir(parents=True, exist_ok=True)
+        gitolite.write_text(
+            "#!/bin/sh\n"
+            f"test \"$HOME\" = {shlex.quote(str(access))} || exit 9\n"
+            "if [ \"$1\" = query-rc ]; then\n"
+            f"  if [ \"$2\" = GL_BINDIR ]; then printf '%s\\n' {shlex.quote(str(self.root / 'gitolite-bin'))}; exit 0; fi\n"
+            f"  if [ \"$2\" = GL_LIBDIR ]; then printf '%s\\n' {shlex.quote(str(self.root / 'gitolite-bin/lib'))}; exit 0; fi\n"
+            "  exit 1\n"
+            "fi\n"
+            "allow() {\n"
+            "  case \"$1:$2:$3\" in\n"
+            "    public:*:R|public:owner:W) return 0 ;;\n"
+            "    group/demo:reader:R|group/demo:writer:R|group/demo:writer:W|group/demo:owner:R|group/demo:owner:W) return 0 ;;\n"
+            "  esac\n"
+            "  return 1\n"
+            "}\n"
+            "if [ \"$2\" = \"%\" ]; then\n"
+            "  while IFS= read -r repo; do\n"
+            "    if allow \"$repo\" \"$3\" \"$4\"; then\n"
+            "      printf '%s\\t%s\\trefs/.*\\n' \"$repo\" \"$3\"\n"
+            "    else\n"
+            "      printf '%s\\t%s\\t%s any %s %s DENIED by fallthru\\n' \"$repo\" \"$3\" \"$4\" \"$repo\" \"$3\"\n"
+            "    fi\n"
+            "  done\n"
+            "  exit 0\n"
+            "fi\n"
+            "allow \"$3\" \"$4\" \"$5\"\n")
+        gitolite.chmod(0o755)
+        (access / "maintenance").write_text("test\n")
+        publish_snapshot(access, self.repos, users)
+        ensure_secret(access)
+        (access / "maintenance").unlink()
+        self.cfg.update(
+            auth_mode="access", username="", password_file="", http_push=True,
+            access={"root": str(access), "gitolite": str(gitolite)},
+        )
+        self.save_config()
+        cgitrc = Path(self.cfg["cgit_config"])
+        if not cgitrc.exists():
+            source = (ROOT / "config/cgitrc").read_text()
+            source = source.replace("/repos", str(self.repos))
+            source = source.replace("/var/cache/cgit", str(self.cache))
+            source = source.replace("/usr/local/lib/cgit-personal", str(ROOT / "runtime"))
+            source = source.replace("cache-size=1000", "cache-size=0")
+            cgitrc.parent.mkdir(parents=True, exist_ok=True)
+            cgitrc.write_text(source)
+        return users
+
+    def enable_real_gitolite(self):
+        binary = gitolite_command(self.root)
+        if binary is None:
+            self.fail("A Gitolite test command is required")
+        access = self.root / "real-access"
+        if access.exists():
+            shutil.rmtree(access)
+        (access / ".gitolite/conf").mkdir(parents=True)
+        (access / ".gitolite/logs").mkdir()
+        public = self.repos / "public.git"
+        run("git", "init", "--bare", "-b", "main", str(public))
+        rc = access / ".gitolite.rc"
+        quoted = str(self.repos).replace("\\", "\\\\").replace("'", "\\'")
+        rc.write_text(f"%RC = (GL_REPO_BASE => '{quoted}', UMASK => 0022);\n")
+        (access / ".gitolite/conf/gitolite.conf").write_text(
+            "repo public\n"
+            "    R = anonymous reader writer owner\n"
+            "    RW+ = owner\n"
+            "repo group/demo\n"
+            "    R = reader writer owner\n"
+            "    RW = writer\n"
+            "    RW+ = owner\n")
+        env = {**ENV, "HOME": str(access), "LANG": "C", "TZ": "UTC"}
+        result = subprocess.run([str(binary), "compile"], env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+        users = {
+            "owner": {"enabled": True, "owner": True,
+                      "secret_hash": hash_secret(b"owner-access-secret")},
+            "reader": {"enabled": True, "owner": False,
+                       "secret_hash": hash_secret(b"reader-access-secret")},
+            "writer": {"enabled": True, "owner": False,
+                       "secret_hash": hash_secret(b"writer-access-secret")},
+        }
+        (access / "maintenance").write_text("test\n")
+        publish_snapshot(access, self.repos, users)
+        (access / "maintenance").unlink()
+        self.cfg.update(
+            auth_mode="access", username="", password_file="", http_push=True,
+            access={"root": str(access), "gitolite": str(binary)},
+        )
+        self.save_config()
+        return users
+
     def request(self, path, data=None, method="GET", auth=False, headers=None):
         values = dict(headers or {})
         if isinstance(data, dict):
@@ -318,6 +458,149 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(self.request("/group/demo/info/refs?service=git-upload-pack",
                                       headers={"Authorization": "Basic !!!"})[0], 401)
 
+    def test_access_mode_identity_git_and_lfs_matrix(self):
+        self.enable_access()
+        reader = {"Authorization": basic_auth("reader", "reader-access-secret")}
+        writer = {"Authorization": basic_auth("writer", "writer-access-secret")}
+        disabled = {"Authorization": basic_auth("disabled", "disabled-access-secret")}
+        private_git = "/group/demo/info/refs?service=git-upload-pack"
+        self.assertEqual(self.request("/public/info/refs?service=git-upload-pack")[0], 200)
+        self.assertEqual(self.request(private_git)[0], 401)
+        self.assertEqual(self.request(private_git, headers=reader)[0], 200)
+        self.assertEqual(self.request(private_git, headers=writer)[0], 200)
+        self.assertEqual(self.request(private_git, headers=disabled)[0], 401)
+        self.assertEqual(self.request(
+            private_git, headers={"Authorization": basic_auth("reader", "wrong-credential")})[0], 401)
+
+        data = b"writer-owned lfs object"
+        oid = hashlib.sha256(data).hexdigest()
+        path = f"/group/demo.git/info/lfs/objects/{oid}"
+        self.assertEqual(self.request(path + f"?size={len(data)}", data, "PUT", headers=writer)[0], 200)
+        self.assertEqual(self.request(path)[0], 401)
+        self.assertEqual(self.request(path, headers=reader)[2], data)
+        self.assertEqual(self.request(path, headers=disabled)[0], 401)
+        other = b"reader cannot upload"
+        other_oid = hashlib.sha256(other).hexdigest()
+        other_path = f"/group/demo.git/info/lfs/objects/{other_oid}"
+        self.assertEqual(self.request(
+            other_path + f"?size={len(other)}", other, "PUT", headers=reader)[0], 404)
+
+        batch = {"operation": "download", "objects": [{"oid": oid, "size": len(data)}]}
+        status, _, body = self.request(
+            "/group/demo.git/info/lfs/objects/batch", batch, "POST", headers=reader)
+        self.assertEqual(status, 200, body)
+        self.assertIn("download", json.loads(body)["objects"][0]["actions"])
+        self.assertEqual(self.request(
+            "/group/demo.git/info/lfs/objects/batch", batch, "POST")[0], 401)
+
+    def test_access_mode_web_visibility_and_direct_urls(self):
+        if self.driver == "cgi":
+            self.skipTest("Real lighttpd/cgit required for web ACL assertions")
+        self.enable_access()
+        reader = {"Authorization": basic_auth("reader", "reader-access-secret")}
+        status, _, public_index = self.request("/")
+        self.assertEqual(status, 200)
+        self.assertIn(b"href='/public/'", public_index)
+        self.assertNotIn(b"href='/group/demo/'", public_index)
+        status, _, reader_index = self.request("/", headers=reader)
+        self.assertEqual(status, 200)
+        self.assertIn(b"href='/public/'", reader_index)
+        self.assertIn(b"href='/group/demo/'", reader_index)
+        self.assertEqual(self.request("/group/demo/")[0], 401)
+        self.assertEqual(self.request("/group/demo/", headers=reader)[0], 200)
+        self.assertEqual(self.request("/public/")[0], 200)
+        for path in ("/?r=group/demo&p=summary", "/?url=group/demo/tree/"):
+            self.assertEqual(self.request(path)[0], 401, path)
+            self.assertEqual(self.request(path, headers=reader)[0], 200, path)
+
+    def test_lfs_bearer_is_repository_operation_and_surface_scoped(self):
+        self.enable_access()
+        generation = json.loads((self.root / "access/identity.json").read_text())["generation"]
+        data = b"bearer scoped object"
+        oid = hashlib.sha256(data).hexdigest()
+        path = f"/group/demo.git/info/lfs/objects/{oid}"
+        writer = {"Authorization": basic_auth("writer", "writer-access-secret")}
+        self.assertEqual(self.request(path + f"?size={len(data)}", data, "PUT",
+                                      headers=writer)[0], 200)
+        download, _ = issue(self.cfg, "reader", "group/demo", "download", generation)
+        bearer = {"Authorization": "Bearer " + download}
+        self.assertEqual(self.request(path, headers=bearer)[2], data)
+        self.assertEqual(self.request("/public/info/refs?service=git-upload-pack",
+                                      headers=bearer)[0], 401)
+        if self.driver != "cgi" or Path(self.cfg["cgit"]).exists():
+            self.assertEqual(self.request("/public/", headers=bearer)[0], 401)
+        upload_data = b"bearer upload"
+        upload_oid = hashlib.sha256(upload_data).hexdigest()
+        upload_path = f"/group/demo.git/info/lfs/objects/{upload_oid}"
+        upload, _ = issue(self.cfg, "writer", "group/demo", "upload", generation)
+        self.assertEqual(self.request(
+            upload_path + f"?size={len(upload_data)}", upload_data, "PUT",
+            headers={"Authorization": "Bearer " + upload})[0], 200)
+        self.assertEqual(self.request(
+            upload_path + f"?size={len(upload_data)}", upload_data, "PUT",
+            headers={"Authorization": "Bearer " + download})[0], 401)
+        version, body, signature = download.split(".")
+        tampered = ".".join(
+            (version, ("A" if body[0] != "A" else "B") + body[1:], signature))
+        self.assertEqual(self.request(path, headers={
+            "Authorization": "Bearer " + tampered})[0], 401)
+
+    def test_real_gitolite_http_hook_enforces_ref_policy(self):
+        if not gitolite_command(self.root):
+            self.skipTest("CGIT_TEST_GITOLITE is required for real update-hook verification")
+        self.enable_real_gitolite()
+        writer = {"Authorization": basic_auth("writer", "writer-access-secret")}
+        reader = {"Authorization": basic_auth("reader", "reader-access-secret")}
+        receive = "/group/demo/info/refs?service=git-receive-pack"
+        self.assertEqual(self.request(receive, headers=writer)[0], 200)
+        self.assertEqual(self.request(receive, headers=reader)[0], 404)
+
+        client = self.root / "access-client"
+        if client.exists():
+            shutil.rmtree(client)
+        writer_helper = (
+            "!f() { echo username=writer; "
+            "echo password=writer-access-secret; }; f")
+        owner_helper = (
+            "!f() { echo username=owner; "
+            "echo password=owner-access-secret; }; f")
+        reader_helper = (
+            "!f() { echo username=reader; "
+            "echo password=reader-access-secret; }; f")
+        run("git", "-c", f"credential.helper={writer_helper}",
+            "clone", self.base + "/group/demo", str(client))
+        (client / "writer.txt").write_text("normal write\n")
+        run("git", "add", ".", cwd=client)
+        run("git", "commit", "-m", "Writer normal push", cwd=client)
+        run("git", "-c", f"credential.helper={writer_helper}",
+            "push", "origin", "HEAD", cwd=client)
+
+        run("git", "lfs", "install", "--local", cwd=client)
+        run("git", "lfs", "track", "*.bin", cwd=client)
+        payload = b"access-controlled LFS payload\n" * 1024
+        (client / "asset.bin").write_bytes(payload)
+        run("git", "add", ".", cwd=client)
+        run("git", "commit", "-m", "Writer LFS push", cwd=client)
+        run("git", "-c", f"credential.helper={writer_helper}",
+            "push", "origin", "HEAD", cwd=client)
+        reader_client = self.root / "access-lfs-reader"
+        run("git", "-c", f"credential.helper={reader_helper}",
+            "-c", "filter.lfs.process=git-lfs filter-process",
+            "-c", "filter.lfs.required=true",
+            "clone", self.base + "/group/demo", str(reader_client))
+        self.assertEqual((reader_client / "asset.bin").read_bytes(), payload)
+
+        run("git", "reset", "--hard", "HEAD~1", cwd=client)
+        (client / "divergent.txt").write_text("force attempt\n")
+        run("git", "add", ".", cwd=client)
+        run("git", "commit", "-m", "Writer force attempt", cwd=client)
+        denied = run("git", "-c", f"credential.helper={writer_helper}",
+                     "push", "--force", "origin", "HEAD", cwd=client, check=False)
+        self.assertNotEqual(denied.returncode, 0, denied.stderr)
+        self.assertIn(b"remote rejected", denied.stderr)
+        run("git", "-c", f"credential.helper={owner_helper}",
+            "push", "--force", "origin", "HEAD", cwd=client)
+
     def test_no_account_is_read_only_and_push_switch_cannot_be_overridden(self):
         self.cfg["username"] = ""
         self.cfg["password_file"] = ""
@@ -341,8 +624,93 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(self.request(f"/group/%2e%2e/demo/info/lfs/objects/{oid}")[0], 404)
         (self.repos / "link.git").symlink_to(self.bare)
         self.assertEqual(self.request("/link/info/refs?service=git-upload-pack")[0], 404)
-        run("git", "--git-dir", str(self.bare), "config", "cgit.ignore", "true")
+        run("git", "--git-dir", str(self.bare), "config", "cgit.ignore", "1")
         self.assertEqual(self.request(f"/group/demo/info/lfs/objects/{oid}")[0], 404)
+
+    def test_excluded_repositories_block_git_lfs_and_browser(self):
+        oid, _ = self.put_object()
+        paths = ("/group/demo/info/refs?service=git-upload-pack",
+                 f"/group/demo/info/lfs/objects/{oid}")
+        if self.driver != "cgi" or Path(self.cfg["cgit"]).exists():
+            paths += ("/group/demo/", "/?r=group/demo&p=summary", "/?url=group/demo/tree/")
+        for rule in ("ignore", "noweb", "local-ignore"):
+            with self.subTest(rule=rule):
+                if rule == "ignore":
+                    run("git", "--git-dir", str(self.bare), "config", "cgit.ignore", "1")
+                else:
+                    (self.bare / ("noweb" if rule == "noweb" else "cgitrc")).write_text(
+                        "" if rule == "noweb" else "ignore=1\n")
+                for path in paths:
+                    status, _, body = self.request(path)
+                    # cgit v1.3.1's legacy r/p form reports "No repository
+                    # selected" (400); virtual URLs report Not found (404).
+                    self.assertEqual(status, 400 if path.startswith("/?r=") else 404, (rule, path))
+                    self.assertNotIn(b"<h1>Demo", body)
+                if rule == "ignore":
+                    run("git", "--git-dir", str(self.bare), "config", "--unset", "cgit.ignore")
+                else:
+                    (self.bare / ("noweb" if rule == "noweb" else "cgitrc")).unlink()
+
+    def test_invalid_ignore_fails_closed_before_index_and_git(self):
+        run("git", "--git-dir", str(self.bare), "config", "cgit.ignore", "true")
+        for path in ("/", "/group/demo/", "/?r=group/demo&p=summary",
+                     "/group/demo/info/refs?service=git-upload-pack",
+                     "/group/demo/info/lfs/objects/" + "a" * 64):
+            self.assertEqual(self.request(path)[0], 500, path)
+
+    def test_doctor_checks_unpublished_repositories(self):
+        run("git", "--git-dir", str(self.bare), "config", "cgit.ignore", "1")
+        if self.driver == "docker":
+            command = ["docker", "exec", self.container, "cgit-doctor", "--git"]
+        else:
+            command = [sys.executable, str(ROOT / "runtime/doctor.py"), "--git"]
+        result = subprocess.run(command, env={**ENV, "CGIT_RUNTIME_CONFIG": str(self.settings)},
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("group/demo.git", json.loads(result.stdout)["repositories"])
+
+    def test_project_list_and_export_marker_cover_all_protocols(self):
+        oid, _ = self.put_object()
+        projects = self.cache / "projects"
+        projects.write_text("other.git\n")
+        # Container-visible paths differ from host paths in the Docker driver.
+        visible_projects = str(Path(self.cfg["cgit_config"]).parent.parent / "projects")
+        self.cfg["repository_policy"] = {"project_list": visible_projects, "strict_export": "export-ok"}
+        self.save_config()
+        cgitrc = self.cache / "runtime/cgitrc"
+        original = cgitrc.read_text() if cgitrc.exists() else None
+        if original is not None:
+            cgitrc.write_text(original.replace("scan-path=", f"project-list={visible_projects}\nstrict-export=export-ok\nscan-path="))
+        paths = ["/group/demo/info/refs?service=git-upload-pack",
+                 f"/group/demo/info/lfs/objects/{oid}"]
+        if self.driver != "cgi" or Path(self.cfg["cgit"]).exists():
+            paths += ["/group/demo/", "/?r=group/demo&p=summary", "/?url=group/demo/tree/"]
+        try:
+            for stage in ("unlisted", "no-marker", "allowed"):
+                if stage == "no-marker":
+                    projects.write_text("group\n")
+                elif stage == "allowed":
+                    (self.bare / "export-ok").touch()
+                for path in paths:
+                    expected = 200 if stage == "allowed" else 400 if path.startswith("/?r=") else 404
+                    self.assertEqual(self.request(path)[0], expected,
+                                     (stage, path))
+        finally:
+            if original is not None:
+                cgitrc.write_text(original)
+
+    def test_hidden_repo_remains_directly_accessible(self):
+        run("git", "--git-dir", str(self.bare), "config", "cgit.hide", "1")
+        oid, _ = self.put_object()
+        self.assertEqual(self.request("/group/demo/info/refs?service=git-upload-pack")[0], 200)
+        self.assertEqual(self.request(f"/group/demo/info/lfs/objects/{oid}")[0], 200)
+        if self.driver != "cgi" or Path(self.cfg["cgit"]).exists():
+            self.assertEqual(self.request("/group/demo/")[0], 200)
+            self.assertNotIn(b"href='/group/demo/'", self.request("/")[2])
+
+    def test_symlink_repo_blocks_browser_scan(self):
+        (self.repos / "link.git").symlink_to(self.bare)
+        self.assertEqual(self.request("/")[0], 500)
 
     def test_external_url_ignores_proxy_headers(self):
         self.cfg["base_url"] = "https://git.example.test"

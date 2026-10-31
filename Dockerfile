@@ -30,6 +30,8 @@ ARG CGIT_COMMIT=044821677c774cd24f25f1818ea51d09cc64b006
 # (https://git.zx2c4.com/cgit/plain/Makefile?h=vX.Y.Z) — cgit links Git's
 # object files directly into cgit.cgi, so a mismatch can fail to build.
 ARG GIT_VERSION=2.54.0
+ARG GITOLITE_VERSION=3.6.14
+ARG GITOLITE_SHA256=46cd120323bb45fae24e202eb90fdfc77b51bc7a8ed085b0fa6936c3594145ee
 
 # kernel.org publishes an official signed sha256sums.asc for Git releases —
 # pinned here so a corrupted download or unexpected upstream content change
@@ -51,6 +53,8 @@ ARG CGIT_VERSION
 ARG CGIT_COMMIT
 ARG GIT_VERSION
 ARG GIT_SHA256
+ARG GITOLITE_VERSION
+ARG GITOLITE_SHA256
 
 RUN apk add --no-cache curl tar xz git
 
@@ -99,6 +103,17 @@ RUN curl ${CURL_FLAGS} "https://www.kernel.org/pub/software/scm/git/git-${GIT_VE
     && rm -rf cgit/git \
     && mv "git-${GIT_VERSION}" cgit/git \
     && rm git.tar.xz
+
+# Gitolite is not packaged in Alpine 3.22. Fetch the tagged source archive,
+# verify it before extraction, and install its portable Perl tree for the
+# runtime's access-mode hooks and CLI.
+RUN curl ${CURL_FLAGS} \
+        "https://github.com/sitaramc/gitolite/archive/refs/tags/v${GITOLITE_VERSION}.tar.gz" \
+        -o gitolite.tar.gz \
+    && echo "${GITOLITE_SHA256}  gitolite.tar.gz" | sha256sum -c - \
+    && tar -xzf gitolite.tar.gz \
+    && cd "gitolite-${GITOLITE_VERSION}" \
+    && ./install -to /out/gitolite
 
 ########################################
 # 2. Build stage — runs per target platform
@@ -157,11 +172,14 @@ RUN apk add --no-cache \
         lighttpd \
         git \
         git-daemon \
+        openssh-client \
+        openssh-server \
         su-exec \
         zlib \
         openssl \
         lua5.4-libs \
         tzdata \
+        perl \
         python3 \
         py3-pygments \
         py3-markdown \
@@ -170,25 +188,32 @@ RUN apk add --no-cache \
 
 COPY --from=build /out/var/www/htdocs/cgit /var/www/htdocs/cgit
 COPY --from=build /out/usr/local/lib/cgit/filters /usr/local/lib/cgit/filters
+COPY --from=fetch /out/gitolite /usr/local/libexec/gitolite
 RUN mv /var/www/htdocs/cgit/cgit.cgi /usr/local/libexec/cgit.cgi \
-    && test -x /usr/libexec/git-core/git-http-backend
+    && test -x /usr/libexec/git-core/git-http-backend \
+    && ln -s /usr/local/libexec/gitolite/gitolite /usr/local/bin/gitolite \
+    && gitolite query-rc GL_BINDIR >/dev/null
 
 COPY runtime/ /usr/local/lib/cgit-personal/
 RUN chmod +x /usr/local/lib/cgit-personal/*.py \
     && ln -s /usr/local/lib/cgit-personal/gateway.py /var/www/htdocs/cgit/gateway.cgi \
-    && ln -s /usr/local/lib/cgit-personal/doctor.py /usr/local/bin/cgit-doctor
+    && ln -s /usr/local/lib/cgit-personal/doctor.py /usr/local/bin/cgit-doctor \
+    && ln -s /usr/local/lib/cgit-personal/ssh_command.py /usr/local/bin/cgit-ssh
 
 COPY config/cgitrc /etc/cgitrc
 COPY config/lighttpd.conf /etc/lighttpd/lighttpd.conf
+COPY config/sshd_config /etc/ssh/cgit_sshd_config
 # Local style preferences (fonts) layered AFTER cgit's
 # own unmodified stylesheet via a second css= line in cgitrc — bumping
 # CGIT_VERSION no longer needs any stylesheet re-merge, everything custom
 # lives in this one small file.
 COPY config/custom.css /var/www/htdocs/cgit/custom.css
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+COPY docker-ssh-entrypoint.sh /usr/local/bin/docker-ssh-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/docker-ssh-entrypoint.sh
 
 EXPOSE 8080
+EXPOSE 2222
 VOLUME ["/repos", "/lfs", "/var/cache/cgit"]
 
 # Checks /cgit.css (a static file lighttpd serves directly) rather than

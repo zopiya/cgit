@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "description": "Fail-closed mapping from security controls to executable contracts, layers, static checks and explicit manual evidence.",
+  "controls": {
+    "S01": {
+      "name": "Public edge",
+      "contracts": ["COMPOSE-TLS"],
+      "static": ["caddy_web_edge", "backend_port_isolation"],
+      "manual": [
+        "Real public DNS/ACME issuance and renewal",
+        "Host firewall and independent-network backend isolation"
+      ]
+    },
+    "S02": {
+      "name": "Unified authorization",
+      "contracts": ["ACL-MATRIX", "SSH-LFS", "BASE-PRIVATE", "BASE-ISOLATION", "BASE-EXCLUSION", "BASE-READONLY"],
+      "static": [],
+      "manual": [
+        "Browser-level visibility matrix for search, descriptions, Atom and every direct URL family"
+      ]
+    },
+    "S03": {
+      "name": "SSH and command execution",
+      "contracts": ["SSH-RESTRICTED", "SSH-LFS"],
+      "tests": [
+        "test_ssh_command.SshCommandTests.test_git_upload_pack_and_shell_denial"
+      ],
+      "static": ["sshd_restricted"],
+      "manual": [
+        "Effective sshd -T configuration and path-race review in the release container"
+      ]
+    },
+    "S04": {
+      "name": "Credentials and secrets",
+      "contracts": ["SSH-LFS"],
+      "tests": [
+        "test_lfs_token.LfsTokenTests.test_scope_expiry_signature_and_generation",
+        "test_lfs_token.LfsTokenTests.test_tampered_token_and_missing_key_are_rejected",
+        "test_lfs_token.LfsTokenTests.test_key_creation_requires_maintenance_and_is_private"
+      ],
+      "artifacts": ["secrets"],
+      "static": ["build_context_excludes_state"],
+      "manual": [
+        "Credential rotation drill against an isolated deployment"
+      ]
+    },
+    "S05": {
+      "name": "Web and resource abuse",
+      "contracts": ["BASE-LFS", "BASE-CONCURRENCY", "BASE-WEB", "BASE-WEB-EXCLUSION", "BASE-ISOLATION"],
+      "static": [],
+      "manual": [
+        "Real-browser malicious HTML/SVG/Markdown and cross-site request review",
+        "Slow, concurrent, cancelled and disk-full transfer/resource acceptance"
+      ]
+    },
+    "S06": {
+      "name": "Automation and backup",
+      "contracts": ["JOBS", "RESTORE"],
+      "static": ["container_hardening"],
+      "manual": [
+        "Real Supercronic schedule and restart/catch-up behavior",
+        "Real encrypted restic repository, independent recovery key and isolated client clone",
+        "Cross-container write-fence and crash recovery drill"
+      ]
+    },
+    "S07": {
+      "name": "Container and host",
+      "contracts": ["COMPOSE-TLS"],
+      "artifacts": ["image"],
+      "static": ["container_hardening"],
+      "manual": [
+        "Host firewall, cgroup, process/file-descriptor and log-capacity acceptance"
+      ]
+    },
+    "S08": {
+      "name": "Build and supply chain",
+      "artifacts": ["image", "secrets"],
+      "static": ["ci_actions_pinned", "runtime_sources_pinned", "build_context_excludes_state"],
+      "manual": [
+        "Image/dependency vulnerability scan and supported-version review",
+        "Traceable release plus upgrade and rollback drill"
+      ]
+    }
+  },
+  "gates": {
+    "G1": {"name": "No authorization bypass", "controls": ["S02"]},
+    "G2": {"name": "No command bypass", "controls": ["S03", "S06"]},
+    "G3": {"name": "No secret disclosure", "controls": ["S04"]},
+    "G4": {"name": "Public edge correctness", "controls": ["S01"]},
+    "G5": {"name": "Bounded hostile input", "controls": ["S05"]},
+    "G6": {"name": "Controlled automation", "controls": ["S06"]},
+    "G7": {"name": "Recoverability", "controls": ["S06"]},
+    "G8": {"name": "Traceable supply chain", "controls": ["S08"]}
+  }
+}
