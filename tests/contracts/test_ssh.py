@@ -161,14 +161,17 @@ class SshProtocol(unittest.TestCase):
         before = run("ssh-keygen", "-lf", str(service.ssh_host_key.with_suffix(".pub")),
                      "-E", "sha256").stdout
         service.restart_ssh()
-        for _ in range(100):
+        deadline = time.monotonic() + 30
+        last_error = None
+        while time.monotonic() < deadline:
             try:
                 self.ssh_auth("owner", "download")
                 break
-            except (AssertionError, OSError):
-                time.sleep(.1)
+            except (AssertionError, OSError) as exc:
+                last_error = exc
+                time.sleep(.5)
         else:
-            self.fail("SSH service did not recover after restart")
+            self.fail(f"SSH service did not recover after restart: {last_error}")
         after = run("ssh-keygen", "-lf", str(service.ssh_host_key.with_suffix(".pub")),
                     "-E", "sha256").stdout
         self.assertEqual(before.split()[1], after.split()[1])

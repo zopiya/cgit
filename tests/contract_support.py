@@ -399,7 +399,9 @@ class Service:
         run(*args)
         port = run("docker", "port", self.ssh_container, "2222").stdout.decode().strip().rsplit(":", 1)[1]
         self.ssh_port = int(port)
-        for _ in range(100):
+        deadline = time.monotonic() + 30
+        probe_error = "No SSH response"
+        while time.monotonic() < deadline:
             probe = subprocess.run(
                 ["ssh", "-i", str(self.ssh_private_keys["owner"]), "-p", port,
                  "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
@@ -410,10 +412,11 @@ class Service:
             )
             if probe.returncode == 0:
                 return
-            time.sleep(.1)
+            probe_error = probe.stderr.decode(errors="replace")[-2000:]
+            time.sleep(.5)
         logs = subprocess.run(["docker", "logs", "--tail", "80", self.ssh_container],
                               capture_output=True, text=True, timeout=20)
-        raise AssertionError(f"SSH service did not become ready\n{logs.stdout}{logs.stderr}")
+        raise AssertionError(f"SSH service did not become ready: {probe_error}\n{logs.stdout}{logs.stderr}")
 
     def _start_local_sshd(self):
         binary = shutil.which("sshd") or "/usr/sbin/sshd"
@@ -478,6 +481,11 @@ class Service:
     def restart_ssh(self):
         if self.ssh_container:
             run("docker", "restart", self.ssh_container)
+            # Docker may allocate a new host port when an ephemeral binding
+            # restarts. The persisted host key identifies the same service.
+            self.ssh_port = int(run(
+                "docker", "port", self.ssh_container, "2222",
+            ).stdout.decode().strip().rsplit(":", 1)[1])
             return
         if not self.ssh_process:
             raise RuntimeError("Local SSH service is not running")

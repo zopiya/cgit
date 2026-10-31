@@ -183,6 +183,47 @@ class JobsCliContract(unittest.TestCase):
         states = json.loads(self.cli("status").stdout)
         self.assertEqual(states["jobs"]["sync"]["status"], "failed")
 
+    @unittest.skipUnless(os.environ.get("CGIT_TEST_DRIVER") == "docker",
+                         "Real encrypted restore requires the Linux maintenance image")
+    def test_real_encrypted_backup_restore_and_client_clone(self):
+        image = os.environ.get("CGIT_TEST_MAINTENANCE_IMAGE")
+        self.assertTrue(image, "Docker contracts require CGIT_TEST_MAINTENANCE_IMAGE")
+        self.write_access()
+        password = self.root / "password"
+        password.write_text("synthetic-encrypted-backup-secret\n")
+        restored = self.root / "restored"
+        for path in (restored, self.state, self.job_work):
+            path.mkdir()
+        self.write_jobs(self.job(
+            "encrypted", "backup", repository="/backups/restic",
+            password_file="/secrets/password", timeout=60))
+
+        def maintenance(*arguments, check=True):
+            return run(
+                "docker", "run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}",
+                "--network", "none", "--cap-drop", "ALL",
+                "--security-opt", "no-new-privileges:true",
+                "-e", "RESTIC_CACHE_DIR=/tmp/restic-cache",
+                "-v", f"{self.repos}:/repos", "-v", f"{self.lfs}:/lfs",
+                "-v", f"{self.access}:/access", "-v", f"{self.backups}:/backups",
+                "-v", f"{self.config}:/jobs/jobs.json:ro",
+                "-v", f"{password}:/secrets/password:ro",
+                "-v", f"{self.state}:/job-state", "-v", f"{self.job_work}:/job-work",
+                "-v", f"{restored}:/restore", "--entrypoint", "python3", image,
+                "/usr/local/lib/cgit-maintenance/jobs.py", *arguments, check=check)
+
+        backup = json.loads(maintenance("run", "--id", "encrypted").stdout)
+        self.assertEqual(backup["status"], "success")
+        result = json.loads(maintenance(
+            "restore", "--repository", "/backups/restic",
+            "--password-file", "/secrets/password", "--destination", "/restore").stdout)
+        self.assertEqual(result["verified"], {"repositories": 1})
+        clone = self.root / "restored-client"
+        run("git", "clone", str(restored / "repos/demo.git"), str(clone))
+        self.assertEqual((clone / "README.md").read_text(), "# Jobs contract\n")
+        self.assertFalse((restored / "access/maintenance").exists())
+        self.assertFalse((restored / "access/write.lock").exists())
+
     def test_restore_requires_complete_verified_data(self):
         self.write_access()
         valid = self.snapshot("valid-snapshot")

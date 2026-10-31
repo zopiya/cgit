@@ -72,8 +72,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           # No registry login or production credentials in either test job.
+      - name: Build isolated maintenance runtime
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: Dockerfile.maintenance
+          platforms: linux/amd64
+          load: true
+          tags: cgit-maintenance:ci
+          cache-from: type=gha,scope=maintenance
+          cache-to: type=gha,scope=maintenance,mode=max
       - name: Required real cgit/lighttpd and Git/LFS clients
         env:
+          CGIT_TEST_MAINTENANCE_IMAGE: cgit-maintenance:ci
           CGIT_TEST_IMAGE: cgit:ci
           CGIT_TEST_GITOLITE_IMAGE: cgit:ci
         run: |
