@@ -30,6 +30,22 @@ class ConfigurationTests(unittest.TestCase):
             configure(source_path=self.template, repos=str(self.repos))
         return json.loads((self.root / "runtime/settings.json").read_text())
 
+    def test_login_link_is_generated_only_for_access_mode(self):
+        access = self.root / "access"
+        access.mkdir()
+        binary = self.root / "gitolite"
+        binary.write_text("#!/bin/sh\nexit 0\n")
+        binary.chmod(0o755)
+        cfg = self.generate(CGIT_AUTH_MODE="access", CGIT_ACCESS_ROOT=str(access),
+                            CGIT_GITOLITE=str(binary))
+        config = Path(cfg["cgit_config"]).read_text()
+        header = self.root / "runtime/access-header.html"
+        self.assertIn(f"header={header}", config)
+        self.assertIn('href="/_login"', header.read_text())
+        self.assertLess(config.index("header="), config.index("scan-path="))
+        cfg = self.generate()
+        self.assertNotIn("access-header.html", Path(cfg["cgit_config"]).read_text())
+
     def test_default_read_only(self):
         cfg = self.generate()
         self.assertFalse(cfg["http_push"])

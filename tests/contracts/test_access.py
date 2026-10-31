@@ -30,6 +30,9 @@ class AccessProtocol(unittest.TestCase):
 
         status, _, anonymous_index = service.request("/")
         self.assertEqual(status, 200)
+        self.assertIn(b'href="/_login"', anonymous_index)
+        self.assertEqual(service.request("/_login")[0], 401)
+        self.assertEqual(service.request("/_login", user="reader")[0], 200)
         self.assertIn(b"href='/public/'", anonymous_index)
         self.assertNotIn(b"href='/group/demo/'", anonymous_index)
         _, _, reader_index = service.request("/", user="reader")

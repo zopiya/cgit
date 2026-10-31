@@ -535,6 +535,16 @@ def main():
         raise RequestError(404, "Not found")
     query = parse_qs(url.query, keep_blank_values=True)
     principal_name = request_principal(cfg)
+    if path == "/_login":
+        if cfg["auth_mode"] != "access":
+            raise RequestError(404, "Not found")
+        if method not in ("GET", "HEAD"):
+            raise RequestError(405, "Method not allowed")
+        if principal_name is None or isinstance(principal_name, LfsBearer):
+            unauthorized()
+        # No user-controlled redirect and no HTML response-body injection.
+        headers(303, content_type="text/plain; charset=UTF-8", Location="/", Content_Length=0)
+        return
     if path == "/_health":
         if method not in ("GET", "HEAD"):
             raise RequestError(405, "Method not allowed")

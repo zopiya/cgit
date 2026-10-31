@@ -556,6 +556,27 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(self.request(path, headers={
             "Authorization": "Bearer " + tampered})[0], 401)
 
+    def test_access_login_challenge_and_authenticated_home(self):
+        self.enable_access()
+        status, headers, _ = self.request("/_login")
+        self.assertEqual(status, 401)
+        self.assertIn('Basic realm="cgit"', headers["WWW-Authenticate"])
+        owner = {"Authorization": basic_auth("owner", "owner-access-secret")}
+        from urllib.request import build_opener, HTTPRedirectHandler
+
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        with self.assertRaises(HTTPError) as redirected:
+            build_opener(NoRedirect).open(Request(self.base + "/_login", headers=owner))
+        self.assertEqual(redirected.exception.code, 303)
+        self.assertEqual(redirected.exception.headers["Location"], "/")
+        redirected.exception.close()
+        self.assertEqual(self.request("/_login", method="POST", headers=owner)[0], 405)
+        self.assertEqual(self.request("/_login", headers={
+            "Authorization": basic_auth("owner", "wrong")})[0], 401)
+
     def test_real_gitolite_http_hook_enforces_ref_policy(self):
         if not gitolite_command(self.root):
             self.skipTest("CGIT_TEST_GITOLITE is required for real update-hook verification")

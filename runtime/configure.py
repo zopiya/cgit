@@ -110,7 +110,15 @@ def configure(source_path=Path("/etc/cgitrc"), repos="/repos", lfs="/lfs",
     (runtime / "settings.json").write_text(json.dumps(cfg) + "\n")
     # Insert overrides before scan-path: each scanned repo inherits these settings.
     clone_url = (base or "http://$HTTP_HOST") + "/$CGIT_REPO_URL"
-    overrides = ("remove-suffix=1\nenable-git-config=1\nscan-hidden-path=0\n"
+    login_header = ""
+    if mode == "access":
+        # A top-level challenge establishes the Basic protection space at /,
+        # rather than at a particular private repository's directory.
+        header_file = runtime / "access-header.html"
+        header_file.write_text(
+            '<nav aria-label="Account"><a href="/_login">登录 / Sign in</a></nav>\n')
+        login_header = f"header={header_file}\n"
+    overrides = (login_header + "remove-suffix=1\nenable-git-config=1\nscan-hidden-path=0\n"
                  f"clone-url={clone_url}{' ' + ssh if ssh else ''}\n")
     source = re.sub(r"^clone-url=.*\n?", "", source, flags=re.M)
     # Dynamic object availability must not be hidden behind cgit's HTML cache.
